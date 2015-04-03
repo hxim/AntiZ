@@ -686,15 +686,17 @@ int main() {
     vector<int_fast64_t> recompOffsetMemlevel;
     vector<int_fast64_t> recompOffsetWindow;
     vector<int_fast64_t> recompOffsetHdrMismatch;
-    int memlevel;
-    int clevel;
+    int memlevel=9;
+    int clevel=9;
     int window=15;
     bool fullmatch=false;
     bool found=false;
     z_stream strm1;
 
     bool slowmode=true;
-    int_fast64_t concentrate=1;
+    #ifdef debug
+    int_fast64_t concentrate=-1;//only try to recompress the stream# givel here, -1 for normal mode
+    #endif // debug
 
     numGoodOffsets=streamOffsetList.size();
     cout<<endl;
@@ -709,6 +711,7 @@ int main() {
         strm.opaque = Z_NULL;
         fullmatch=false;
         memlevel=9;
+        window=15;
         //the lengths of the zlib streams have been saved by the previous phase
         strm.avail_in = streamLength[j];
         strm.next_in=rBuffer+streamOffsetList[j];//this is effectively adding an integer to a pointer, resulting in a pointer
@@ -731,6 +734,7 @@ int main() {
             case Z_STREAM_END: //decompression was succesful
             {
                 #ifdef debug
+                cout<<endl;
                 cout<<"stream #"<<j<<" ready for recompression trials"<<endl;
                 #endif // debug
                 if (slowmode){
@@ -738,6 +742,8 @@ int main() {
                     cout<<"   entering slow mode"<<endl;
                     cout<<"   stream type: "<<streamType[j]<<endl;
                     #endif // debug
+                        do{
+                            memlevel=9;
                         do {
                             clevel=9;
                             do {
@@ -750,6 +756,7 @@ int main() {
                                 cout<<"-------------------------"<<endl;
                                 cout<<"   memlevel:"<<memlevel<<endl;
                                 cout<<"   clevel:"<<clevel<<endl;
+                                cout<<"   window:"<<window<<endl;
                                 #endif // debug
                                 //use all default settings except clevel and memlevel
                                 ret = deflateInit2(&strm1, clevel, Z_DEFLATED, window, memlevel, Z_DEFAULT_STRATEGY);
@@ -867,6 +874,8 @@ int main() {
                             } while ((!fullmatch)&&(clevel>=1));
                             memlevel--;
                         } while ((!fullmatch)&&(memlevel>=1));
+                            window--;
+                        } while ((!fullmatch)&&(window>=10));
                 } else {
                 #ifdef debug
                 cout<<"   entering optimized mode"<<endl;
