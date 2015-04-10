@@ -742,8 +742,8 @@ int main() {
                     cout<<"   entering slow mode"<<endl;
                     cout<<"   stream type: "<<streamType[j]<<endl;
                     #endif // debug
-                        do{
-                            memlevel=9;
+                    do{
+                        memlevel=9;
                         do {
                             clevel=9;
                             do {
@@ -874,8 +874,8 @@ int main() {
                             } while ((!fullmatch)&&(clevel>=1));
                             memlevel--;
                         } while ((!fullmatch)&&(memlevel>=1));
-                            window--;
-                        } while ((!fullmatch)&&(window>=10));
+                        window--;
+                    } while ((!fullmatch)&&(window>=10));
                 } else {
                 #ifdef debug
                 cout<<"   entering optimized mode"<<endl;
