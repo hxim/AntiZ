@@ -1,8 +1,9 @@
 # depslib dependency file v1.0
-1428064265 source:c:\users\szuperhab\desktop\prog\uncomp\main.cpp
+1428664569 source:c:\users\szuperhab\desktop\prog\uncomp\main.cpp
 	<iostream>
 	<fstream>
 	<vector>
+	<cmath>
 	<sys/stat.h>
 	<zlib.h>
 

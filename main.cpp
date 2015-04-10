@@ -1,6 +1,7 @@
 #include <iostream>
 #include <fstream>
 #include <vector>
+#include <cmath>
 #include <sys/stat.h>
 #include <zlib.h>
 
@@ -690,6 +691,7 @@ int main() {
     int memlevel=9;
     int clevel=9;
     int window=15;
+    int sizediffTresh=64;
     bool fullmatch=false;
     bool found=false;
     z_stream strm1;
@@ -789,23 +791,27 @@ int main() {
 
                                 //test if the recompressed stream matches the input data
                                 if (strm1.total_out!=streamLength[j]){
-                                    #ifdef debug
-                                    cout<<"   recompression failed, size difference: "<<(strm1.total_out-streamLength[j])<<endl;
                                     identicalBytes=0;
-                                    if (strm1.total_out<streamLength[j]){
-                                        for (i=0; i<strm1.total_out;i++){
-                                            if ((recompBuffer[i]-rBuffer[(i+streamOffsetList[j])])==0){
-                                                identicalBytes++;
-                                            }
-                                        }
+                                    #ifdef debug
+                                    cout<<"   size difference: "<<(strm1.total_out-streamLength[j])<<endl;
+                                    if (abs((strm1.total_out-streamLength[j]))>sizediffTresh){
+                                        cout<<"   size difference is greater than "<<sizediffTresh<<" bytes, not comparing"<<endl;
                                     } else {
-                                        for (i=0; i<streamLength[j];i++){
-                                            if ((recompBuffer[i]-rBuffer[(i+streamOffsetList[j])])==0){
-                                                identicalBytes++;
+                                        if (strm1.total_out<streamLength[j]){
+                                            for (i=0; i<strm1.total_out;i++){
+                                                if ((recompBuffer[i]-rBuffer[(i+streamOffsetList[j])])==0){
+                                                    identicalBytes++;
+                                                }
+                                            }
+                                        } else {
+                                            for (i=0; i<streamLength[j];i++){
+                                                if ((recompBuffer[i]-rBuffer[(i+streamOffsetList[j])])==0){
+                                                    identicalBytes++;
+                                                }
                                             }
                                         }
-                                    }
                                         cout<<"   "<<identicalBytes<<" bytes out of "<<streamLength[j]<<" identical"<<endl;
+                                    }
                                     #endif // debug
                                     clevel--;
                                 } else {
