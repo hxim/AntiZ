@@ -682,10 +682,11 @@ int main() {
     int_fast64_t identicalBytes;
     int_fast64_t numFullmatch=0;
     vector<int_fast64_t> recompOffsetList;
-    vector<int_fast64_t> recompOffsetClevel;
-    vector<int_fast64_t> recompOffsetMemlevel;
-    vector<int_fast64_t> recompOffsetWindow;
-    vector<int_fast64_t> recompOffsetHdrMismatch;
+    vector<int_fast64_t> streamOffsetClevel;
+    vector<int_fast64_t> streamOffsetMemlevel;
+    vector<int_fast64_t> streamOffsetWindow;
+    vector<int_fast64_t> streamOffsetHdrMismatch;
+    vector<int_fast64_t> streamOffsetIdenticalBytes;
     int memlevel=9;
     int clevel=9;
     int window=15;
@@ -790,23 +791,21 @@ int main() {
                                 if (strm1.total_out!=streamLength[j]){
                                     #ifdef debug
                                     cout<<"   recompression failed, size difference: "<<(strm1.total_out-streamLength[j])<<endl;
-                                    if (concentrate>=0){
-                                        identicalBytes=0;
-                                        if (strm1.total_out<streamLength[j]){
-                                            for (i=0; i<strm1.total_out;i++){
-                                                if ((recompBuffer[i]-rBuffer[(i+streamOffsetList[j])])==0){
-                                                    identicalBytes++;
-                                                }
-                                            }
-                                        } else {
-                                            for (i=0; i<streamLength[j];i++){
-                                                if ((recompBuffer[i]-rBuffer[(i+streamOffsetList[j])])==0){
-                                                    identicalBytes++;
-                                                }
+                                    identicalBytes=0;
+                                    if (strm1.total_out<streamLength[j]){
+                                        for (i=0; i<strm1.total_out;i++){
+                                            if ((recompBuffer[i]-rBuffer[(i+streamOffsetList[j])])==0){
+                                                identicalBytes++;
                                             }
                                         }
-                                        cout<<"   "<<identicalBytes<<" bytes out of "<<streamLength[j]<<" identical"<<endl;
+                                    } else {
+                                        for (i=0; i<streamLength[j];i++){
+                                            if ((recompBuffer[i]-rBuffer[(i+streamOffsetList[j])])==0){
+                                                identicalBytes++;
+                                            }
+                                        }
                                     }
+                                        cout<<"   "<<identicalBytes<<" bytes out of "<<streamLength[j]<<" identical"<<endl;
                                     #endif // debug
                                     clevel--;
                                 } else {
@@ -826,10 +825,10 @@ int main() {
                                         fullmatch=true;
                                         numFullmatch++;
                                         recompOffsetList.push_back(streamOffsetList[j]);
-                                        recompOffsetClevel.push_back(clevel);
-                                        recompOffsetMemlevel.push_back(memlevel);
-                                        recompOffsetWindow.push_back(window);
-                                        recompOffsetHdrMismatch.push_back(0);
+                                        streamOffsetClevel.push_back(clevel);
+                                        streamOffsetMemlevel.push_back(memlevel);
+                                        streamOffsetWindow.push_back(window);
+                                        streamOffsetHdrMismatch.push_back(0);
                                     } else {
                                         #ifdef debug
                                         cout<<"   partial match, "<<identicalBytes<<" bytes out of "<<streamLength[j]<<" identical"<<endl;
@@ -838,20 +837,20 @@ int main() {
                                             fullmatch=true;
                                             numFullmatch++;
                                             recompOffsetList.push_back(streamOffsetList[j]);
-                                            recompOffsetClevel.push_back(clevel);
-                                            recompOffsetMemlevel.push_back(memlevel);
-                                            recompOffsetWindow.push_back(window);
-                                            recompOffsetHdrMismatch.push_back(1);
+                                            streamOffsetClevel.push_back(clevel);
+                                            streamOffsetMemlevel.push_back(memlevel);
+                                            streamOffsetWindow.push_back(window);
+                                            streamOffsetHdrMismatch.push_back(1);
                                         }
                                         if (((streamLength[j]-identicalBytes)==1)&&(((recompBuffer[0]-rBuffer[streamOffsetList[j]])!=0)||((recompBuffer[1]-rBuffer[(1+streamOffsetList[j])])!=0))){
                                             cout<<"   1 byte header mismatch, accepting"<<endl;
                                             fullmatch=true;
                                             numFullmatch++;
                                             recompOffsetList.push_back(streamOffsetList[j]);
-                                            recompOffsetClevel.push_back(clevel);
-                                            recompOffsetMemlevel.push_back(memlevel);
-                                            recompOffsetWindow.push_back(window);
-                                            recompOffsetHdrMismatch.push_back(1);
+                                            streamOffsetClevel.push_back(clevel);
+                                            streamOffsetMemlevel.push_back(memlevel);
+                                            streamOffsetWindow.push_back(window);
+                                            streamOffsetHdrMismatch.push_back(1);
                                         }
                                         //pause();
                                         #endif // debug
@@ -1103,10 +1102,10 @@ int main() {
         cout<<"-------------------------"<<endl;
         cout<<"   recompressed stream #"<<j<<endl;
         cout<<"   offset:"<<recompOffsetList[j]<<endl;
-        cout<<"   memlevel:"<<recompOffsetMemlevel[j]<<endl;
-        cout<<"   clevel:"<<recompOffsetClevel[j]<<endl;
-        cout<<"   window:"<<recompOffsetWindow[j]<<endl;
-        cout<<"   mismatched header bytes:"<<recompOffsetHdrMismatch[j]<<endl;
+        cout<<"   memlevel:"<<streamOffsetMemlevel[j]<<endl;
+        cout<<"   clevel:"<<streamOffsetClevel[j]<<endl;
+        cout<<"   window:"<<streamOffsetWindow[j]<<endl;
+        cout<<"   mismatched header bytes:"<<streamOffsetHdrMismatch[j]<<endl;
     }
     cout<<endl;
     cout<<"Streams not recompressed:"<<endl;
