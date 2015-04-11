@@ -13,6 +13,22 @@ void pause(){
     std::getline(std::cin, dummy);
 }
 
+class fileOffset{
+public:
+    fileOffset(){
+        offset=0;
+        offsetType=1;
+    }
+    fileOffset(int_fast64_t os, int ot){
+        offset=os;
+        offsetType=ot;
+    }
+    int_fast64_t offset;
+    int offsetType;
+    //int_fast64_t offset;
+    //int_fast64_t offset;
+};
+
 
 int main() {
 	using std::cout;
@@ -40,6 +56,7 @@ int main() {
         requires:
             none
 	*/
+	int_fast64_t infileSize;
 	std::ifstream infile(filename, std::ios::in | std::ios::binary);
 	if (!infile.is_open()) {
        cout << "error: open file for input failed!" << endl;
@@ -56,7 +73,7 @@ int main() {
     	pause();
     	abort();
     }
-    int_fast64_t infileSize=statresults.st_size;
+    infileSize=statresults.st_size;
     //setting up read buffer and reading the entire file into the buffer
     unsigned char* rBuffer = new unsigned char[infileSize];
     infile.read(reinterpret_cast<char*>(rBuffer), infileSize);
@@ -94,13 +111,11 @@ int main() {
 	#endif
 	//offsetList stores memory offsets where potential headers can be found
 	//offsetType stores the type of the header
-	vector<int_fast64_t> offsetList;
-	vector<int_fast32_t> offsetType;
+	vector<fileOffset> offsetList;
 	int_fast64_t i;
 	//try to guess the number of potential zlib headers in the file from the file size
 	//this value is purely empirical, may need tweaking
 	offsetList.reserve(static_cast<int_fast64_t>(infileSize/1912));
-	offsetType.reserve(static_cast<int_fast64_t>(infileSize/1912));
 	#ifdef debug
 	cout<<"Offset list initial capacity:"<<offsetList.capacity()<<endl;
 	pause();
@@ -116,8 +131,7 @@ int main() {
                         nMatch1++;
                         cout<<"Found zlib header(78 01) with 32K window at offset: "<<i<<endl;
                         #endif // debug
-                        offsetList.push_back(i);
-                        offsetType.push_back(1);
+                        offsetList.push_back(fileOffset(i, 1));
                         break;
                     }
                     case 94:{//hex 78 5E
@@ -125,8 +139,7 @@ int main() {
                         nMatch1++;
                         cout<<"Found zlib header(78 5E) with 32K window at offset: "<<i<<endl;
                         #endif // debug
-                        offsetList.push_back(i);
-                        offsetType.push_back(2);
+                        offsetList.push_back(fileOffset(i, 2));
                         break;
                     }
                     case 156:{//hex 78 9C
@@ -134,8 +147,7 @@ int main() {
                         nMatch1++;
                         cout<<"Found zlib header(78 9C) with 32K window at offset: "<<i<<endl;
                         #endif // debug
-                        offsetList.push_back(i);
-                        offsetType.push_back(3);
+                        offsetList.push_back(fileOffset(i, 3));
                         break;
                     }
                     case 218:{//hex 78 DA
@@ -143,8 +155,7 @@ int main() {
                         nMatch1++;
                         cout<<"Found zlib header(78 DA) with 32K window at offset: "<<i<<endl;
                         #endif // debug
-                        offsetList.push_back(i);
-                        offsetType.push_back(4);
+                        offsetList.push_back(fileOffset(i, 4));
                         break;
                     }
                 }
@@ -158,8 +169,7 @@ int main() {
                         nMatch2++;
                         cout<<"Found zlib header(68 DE) with 16K window at offset: "<<i<<endl;
                         #endif // debug
-                        offsetList.push_back(i);
-                        offsetType.push_back(5);
+                        offsetList.push_back(fileOffset(i, 5));
                         break;
                     }
                     case 129:{//hex 68 81
@@ -167,8 +177,7 @@ int main() {
                         nMatch2++;
                         cout<<"Found zlib header(68 81) with 16K window at offset: "<<i<<endl;
                         #endif // debug
-                        offsetList.push_back(i);
-                        offsetType.push_back(6);
+                        offsetList.push_back(fileOffset(i, 6));
                         break;
                     }
                     case 67:{//hex 68 43
@@ -176,8 +185,7 @@ int main() {
                         nMatch2++;
                         cout<<"Found zlib header(68 43) with 16K window at offset: "<<i<<endl;
                         #endif // debug
-                        offsetList.push_back(i);
-                        offsetType.push_back(7);
+                        offsetList.push_back(fileOffset(i, 7));
                         break;
                     }
                     case 5:{//hex 68 05
@@ -185,8 +193,7 @@ int main() {
                         nMatch2++;
                         cout<<"Found zlib header(68 05) with 16K window at offset: "<<i<<endl;
                         #endif // debug
-                        offsetList.push_back(i);
-                        offsetType.push_back(8);
+                        offsetList.push_back(fileOffset(i, 8));
                         break;
                     }
                 }
@@ -200,8 +207,7 @@ int main() {
                         nMatch3++;
                         cout<<"Found zlib header(58 C3) with 8K window at offset: "<<i<<endl;
                         #endif // debug
-                        offsetList.push_back(i);
-                        offsetType.push_back(9);
+                        offsetList.push_back(fileOffset(i, 9));
                         break;
                     }
                     case 133:{//hex 58 85
@@ -209,8 +215,7 @@ int main() {
                         nMatch3++;
                         cout<<"Found zlib header(58 85) with 8K window at offset: "<<i<<endl;
                         #endif // debug
-                        offsetList.push_back(i);
-                        offsetType.push_back(10);
+                        offsetList.push_back(fileOffset(i, 10));
                         break;
                     }
                     case 71:{//hex 58 47
@@ -218,8 +223,7 @@ int main() {
                         nMatch3++;
                         cout<<"Found zlib header(58 47) with 8K window at offset: "<<i<<endl;
                         #endif // debug
-                        offsetList.push_back(i);
-                        offsetType.push_back(11);
+                        offsetList.push_back(fileOffset(i, 11));
                         break;
                     }
                     case 9:{//hex 58 09
@@ -227,8 +231,7 @@ int main() {
                         nMatch3++;
                         cout<<"Found zlib header(58 09) with 8K window at offset: "<<i<<endl;
                         #endif // debug
-                        offsetList.push_back(i);
-                        offsetType.push_back(12);
+                        offsetList.push_back(fileOffset(i, 12));
                         break;
                     }
                 }
@@ -242,8 +245,7 @@ int main() {
                         nMatch4++;
                         cout<<"Found zlib header(48 C7) with 4K window at offset: "<<i<<endl;
                         #endif // debug
-                        offsetList.push_back(i);
-                        offsetType.push_back(13);
+                        offsetList.push_back(fileOffset(i, 13));
                         break;
                     }
                     case 137:{//hex 48 89
@@ -251,8 +253,7 @@ int main() {
                         nMatch4++;
                         cout<<"Found zlib header(48 89) with 4K window at offset: "<<i<<endl;
                         #endif // debug
-                        offsetList.push_back(i);
-                        offsetType.push_back(14);
+                        offsetList.push_back(fileOffset(i, 14));
                         break;
                     }
                     case 75:{//hex 48 4B
@@ -260,8 +261,7 @@ int main() {
                         nMatch4++;
                         cout<<"Found zlib header(48 4B) with 4K window at offset: "<<i<<endl;
                         #endif // debug
-                        offsetList.push_back(i);
-                        offsetType.push_back(15);
+                        offsetList.push_back(fileOffset(i, 15));;
                         break;
                     }
                     case 13:{//hex 48 0D
@@ -269,8 +269,7 @@ int main() {
                         nMatch4++;
                         cout<<"Found zlib header(48 0D) with 4K window at offset: "<<i<<endl;
                         #endif // debug
-                        offsetList.push_back(i);
-                        offsetType.push_back(16);
+                        offsetList.push_back(fileOffset(i, 16));
                         break;
                     }
                 }
@@ -284,8 +283,7 @@ int main() {
                         nMatch5++;
                         cout<<"Found zlib header(38 CB) with 2K window at offset: "<<i<<endl;
                         #endif // debug
-                        offsetList.push_back(i);
-                        offsetType.push_back(17);
+                        offsetList.push_back(fileOffset(i, 17));
                         break;
                     }
                     case 141:{
@@ -293,8 +291,7 @@ int main() {
                         nMatch5++;
                         cout<<"Found zlib header(38 8D) with 2K window at offset: "<<i<<endl;
                         #endif // debug
-                        offsetList.push_back(i);
-                        offsetType.push_back(18);
+                        offsetList.push_back(fileOffset(i, 18));
                         break;
                     }
                     case 79:{
@@ -302,8 +299,7 @@ int main() {
                         nMatch5++;
                         cout<<"Found zlib header(38 4F) with 2K window at offset: "<<i<<endl;
                         #endif // debug
-                        offsetList.push_back(i);
-                        offsetType.push_back(19);
+                        offsetList.push_back(fileOffset(i, 19));
                         break;
                     }
                     case 17:{
@@ -311,8 +307,7 @@ int main() {
                         nMatch5++;
                         cout<<"Found zlib header(38 11) with 2K window at offset: "<<i<<endl;
                         #endif // debug
-                        offsetList.push_back(i);
-                        offsetType.push_back(20);
+                        offsetList.push_back(fileOffset(i, 20));
                         break;
                     }
                 }
@@ -326,8 +321,7 @@ int main() {
                         nMatch6++;
                         cout<<"Found zlib header(28 CF) with 1K window at offset: "<<i<<endl;
                         #endif // debug
-                        offsetList.push_back(i);
-                        offsetType.push_back(21);
+                        offsetList.push_back(fileOffset(i, 21));
                         break;
                     }
                     case 145:{
@@ -335,8 +329,7 @@ int main() {
                         nMatch6++;
                         cout<<"Found zlib header(28 91) with 1K window at offset: "<<i<<endl;
                         #endif // debug
-                        offsetList.push_back(i);
-                        offsetType.push_back(22);
+                        offsetList.push_back(fileOffset(i, 22));
                         break;
                     }
                     case 83:{
@@ -344,8 +337,7 @@ int main() {
                         nMatch6++;
                         cout<<"Found zlib header(28 53) with 1K window at offset: "<<i<<endl;
                         #endif // debug
-                        offsetList.push_back(i);
-                        offsetType.push_back(23);
+                        offsetList.push_back(fileOffset(i, 23));
                         break;
                     }
                     case 21:{
@@ -353,8 +345,7 @@ int main() {
                         nMatch6++;
                         cout<<"Found zlib header(28 15) with 1K window at offset: "<<i<<endl;
                         #endif // debug
-                        offsetList.push_back(i);
-                        offsetType.push_back(24);
+                        offsetList.push_back(fileOffset(i, 24));
                         break;
                     }
                 }
@@ -380,7 +371,7 @@ int main() {
 	}
     pause();
     #endif // debug
-
+#if 0
     //PHASE 2
     //start trying to decompress at the collected offsets
     /*
@@ -1131,7 +1122,7 @@ int main() {
         }
     }
 
-
+#endif
     /*int_fast64_t numGoodOffsets=streamOffsetList.size();
     int_fast64_t identical=0;
     for (j=0; j<numGoodOffsets; j++)
