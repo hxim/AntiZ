@@ -29,6 +29,27 @@ public:
     //int_fast64_t offset;
 };
 
+class streamOffset{
+public:
+    streamOffset(){
+        offset=0;
+        offsetType=1;
+        streamLength=1;
+        inflatedLength=1;
+    }
+    streamOffset(int_fast64_t os, int ot, int_fast64_t sl, int_fast64_t il){
+        offset=os;
+        offsetType=ot;
+        streamLength=sl;
+        inflatedLength=il;
+    }
+    int_fast64_t offset;
+    int offsetType;
+    int_fast64_t streamLength;
+    int_fast64_t inflatedLength;
+    //int_fast64_t offset;
+    //int_fast64_t offset;
+};
 
 int main() {
 	using std::cout;
@@ -81,26 +102,6 @@ int main() {
 
     //PHASE 1
 	//search the file for zlib headers, count them and create an offset list
-	/*
-		objects created:
-			offsetList: vector holding the offsets of potential zlib streams
-			offsetType: vector holding information about the type of the potential offsets in offsetList. Index-coupled to offsetList.
-		objects destroyed:
-			none
-		objects created, but not provided or destroyed:
-			none
-		variables declared:
-			i: general purpose iterator, for for loops etc.
-		debug variables declared:
-			nMatch1..6: number of header matches found with 32K..1K window
-		required:
-			infileSize
-			rBuffer
-		provides:
-			offsetList
-			offsetType
-			i
-	*/
 	#ifdef debug
 	uint_fast64_t nMatch1=0;
 	uint_fast64_t nMatch2=0;
@@ -109,8 +110,7 @@ int main() {
 	uint_fast64_t nMatch5=0;
 	uint_fast64_t nMatch6=0;
 	#endif
-	//offsetList stores memory offsets where potential headers can be found
-	//offsetType stores the type of the header
+	//offsetList stores memory offsets where potential headers can be found, and the type of the offset
 	vector<fileOffset> offsetList;
 	int_fast64_t i;
 	//try to guess the number of potential zlib headers in the file from the file size
@@ -371,7 +371,7 @@ int main() {
 	}
     pause();
     #endif // debug
-#if 0
+
     //PHASE 2
     //start trying to decompress at the collected offsets
     /*
@@ -412,13 +412,13 @@ int main() {
     int_fast64_t lastGoodOffset=0;
     int_fast64_t lastStreamLength=0;
     int_fast64_t memScale=1;
-    int_fast64_t j;
-	int_fast64_t numOffsets;
-	int_fast32_t ret;
+	int_fast64_t numOffsets=0;
+	int ret=-9;/*
     vector<int_fast64_t> streamOffsetList;
 	vector<int_fast32_t> streamType;
 	vector<int_fast64_t> streamLength;
-	vector<int_fast64_t> inflatedLength;
+	vector<int_fast64_t> inflatedLength;*/
+	vector<streamOffset> streamOffsetList;
 	z_stream strm;
     #ifdef debug
 	int_fast64_t dataErrors=0;
@@ -435,9 +435,9 @@ int main() {
     #endif // debug
 
     numOffsets=offsetList.size();
-    for (j=0; j<numOffsets; j++)
+    for (i=0; i<numOffsets; i++)
     {
-        if ((lastGoodOffset+lastStreamLength)<=offsetList[j])
+        if ((lastGoodOffset+lastStreamLength)<=offsetList[i].offset)
         {
             /*
             local variables and objects:
@@ -448,8 +448,8 @@ int main() {
             strm.zfree = Z_NULL;
             strm.opaque = Z_NULL;
             //since we have no idea about the lenght of the zlib stream, take the worst case, i.e. everything after the header belongs to the stream
-            strm.avail_in= infileSize-offsetList[j];
-            strm.next_in=rBuffer+offsetList[j];//this is effectively adding an integer to a pointer, resulting in a pointer
+            strm.avail_in= infileSize-offsetList[i].offset;
+            strm.next_in=rBuffer+offsetList[i].offset;//this is effectively adding an integer to a pointer, resulting in a pointer
             //initialize the stream for decompression and check for error
             ret=inflateInit(&strm);
             if (ret != Z_OK)
@@ -461,157 +461,13 @@ int main() {
             //a buffer needs to be created to hold the resulting decompressed data
             //this is a big problem since the zlib header does not contain the length of the decompressed data
             //the best we can do is to take a guess, and see if it was big enough, if not then scale it up
-            unsigned char* decompBuffer= new unsigned char[(memScale*5*(infileSize-offsetList[j]))]; //just a wild guess, corresponds to a compression ratio of 20%
+            unsigned char* decompBuffer= new unsigned char[(memScale*5*(infileSize-offsetList[i].offset))]; //just a wild guess, corresponds to a compression ratio of 20%
             strm.next_out=decompBuffer;
-            strm.avail_out=memScale*5*(infileSize-offsetList[j]);
+            strm.avail_out=memScale*5*(infileSize-offsetList[i].offset);
             ret=inflate(&strm, Z_FINISH);//try to do the actual decompression in one pass
             //check the return value
             switch (ret)
             {
-                case Z_STREAM_END://decompression was succesful
-                {
-                    #ifdef debug
-                    switch(offsetType[j]){
-                        //32K window streams
-                        case 1:{//78 01
-                            cout<<"Stream #"<<j<<"(78 01) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
-                            numDecomp32k++;
-                            type1++;
-                            break;
-                        }
-                        case 2:{//78 5E
-                            cout<<"Stream #"<<j<<"(78 5E) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
-                            numDecomp32k++;
-                            type2++;
-                            break;
-                        }
-                        case 3:{//78 9C
-                            cout<<"Stream #"<<j<<"(78 9C) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
-                            numDecomp32k++;
-                            type3++;
-                            break;
-                        }
-                        case 4:{//78 DA
-                            cout<<"Stream #"<<j<<"(78 DA) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
-                            numDecomp32k++;
-                            type4++;
-                            break;
-                        }
-                        //16K window streams
-                        case 5:{//68 DE
-                            cout<<"Stream #"<<j<<"(68 DE) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
-                            numDecomp16k++;
-                            break;
-                        }
-                        case 6:{//68 81
-                            cout<<"Stream #"<<j<<"(68 81) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
-                            numDecomp16k++;
-                            break;
-                        }
-                        case 7:{//68 43
-                            cout<<"Stream #"<<j<<"(68 43) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
-                            numDecomp16k++;
-                            break;
-                        }
-                        case 8:{//68 05
-                            cout<<"Stream #"<<j<<"(68 05) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
-                            numDecomp16k++;
-                            break;
-                        }
-                        //8K window streams
-                        case 9:{//58 C3
-                            cout<<"Stream #"<<j<<"(58 C3) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
-                            numDecomp8k++;
-                            break;
-                        }
-                        case 10:{//58 85
-                            cout<<"Stream #"<<j<<"(58 85) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
-                            numDecomp8k++;
-                            break;
-                        }
-                        case 11:{//58 47
-                            cout<<"Stream #"<<j<<"(58 47) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
-                            numDecomp8k++;
-                            break;
-                        }
-                        case 12:{//58 09
-                            cout<<"Stream #"<<j<<"(58 09) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
-                            numDecomp8k++;
-                            break;
-                        }
-                        //4K window streams
-                        case 13:{
-                            cout<<"Stream #"<<j<<"(48 C7) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
-                            numDecomp4k++;
-                            break;
-                        }
-                        case 14:{
-                            cout<<"Stream #"<<j<<"(48 89) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
-                            numDecomp4k++;
-                            break;
-                        }
-                        case 15:{
-                            cout<<"Stream #"<<j<<"(48 4B) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
-                            numDecomp4k++;
-                            break;
-                        }
-                        case 16:{
-                            cout<<"Stream #"<<j<<"(48 0D) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
-                            numDecomp4k++;
-                            break;
-                        }
-                        //2K window streams
-                        case 17:{
-                            cout<<"Stream #"<<j<<"(38 CB) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
-                            numDecomp2k++;
-                            break;
-                        }
-                        case 18:{
-                            cout<<"Stream #"<<j<<"(38 8D) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
-                            numDecomp2k++;
-                            break;
-                        }
-                        case 19:{
-                            cout<<"Stream #"<<j<<"(38 4F) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
-                            numDecomp2k++;
-                            break;
-                        }
-                        case 20:{
-                            cout<<"Stream #"<<j<<"(38 11) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
-                            numDecomp2k++;
-                            break;
-                        }
-                        //1K window streams
-                        case 21:{
-                            cout<<"Stream #"<<j<<"(28 CF) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
-                            numDecomp1k++;
-                            break;
-                        }
-                        case 22:{
-                            cout<<"Stream #"<<j<<"(28 91) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
-                            numDecomp1k++;
-                            break;
-                        }
-                        case 23:{
-                            cout<<"Stream #"<<j<<"(28 53) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
-                            numDecomp1k++;
-                            break;
-                        }
-                        case 24:{
-                            cout<<"Stream #"<<j<<"(28 15) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
-                            numDecomp1k++;
-                            break;
-                        }
-                    }
-                    #endif // debug
-                    lastGoodOffset=offsetList[j];
-                    lastStreamLength=strm.total_in;
-                    streamOffsetList.push_back(offsetList[j]);
-                    streamType.push_back(offsetType[j]);
-                    streamLength.push_back(strm.total_in);
-                    inflatedLength.push_back(strm.total_out);
-                    break;
-                }
                 case Z_DATA_ERROR://the compressed data was invalid, most likely it was not a good offset
                 {
                     #ifdef debug
@@ -619,11 +475,154 @@ int main() {
                     #endif // debug
                     break;
                 }
+                case Z_STREAM_END://decompression was succesful
+                {
+                    #ifdef debug
+                    switch(offsetList[i].offsetType){
+                        //32K window streams
+                        case 1:{//78 01
+                            cout<<"Stream #"<<i<<"(78 01) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
+                            numDecomp32k++;
+                            type1++;
+                            break;
+                        }
+                        case 2:{//78 5E
+                            cout<<"Stream #"<<i<<"(78 5E) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
+                            numDecomp32k++;
+                            type2++;
+                            break;
+                        }
+                        case 3:{//78 9C
+                            cout<<"Stream #"<<i<<"(78 9C) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
+                            numDecomp32k++;
+                            type3++;
+                            break;
+                        }
+                        case 4:{//78 DA
+                            cout<<"Stream #"<<i<<"(78 DA) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
+                            numDecomp32k++;
+                            type4++;
+                            break;
+                        }
+                        //16K window streams
+                        case 5:{//68 DE
+                            cout<<"Stream #"<<i<<"(68 DE) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
+                            numDecomp16k++;
+                            break;
+                        }
+                        case 6:{//68 81
+                            cout<<"Stream #"<<i<<"(68 81) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
+                            numDecomp16k++;
+                            break;
+                        }
+                        case 7:{//68 43
+                            cout<<"Stream #"<<i<<"(68 43) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
+                            numDecomp16k++;
+                            break;
+                        }
+                        case 8:{//68 05
+                            cout<<"Stream #"<<i<<"(68 05) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
+                            numDecomp16k++;
+                            break;
+                        }
+                        //8K window streams
+                        case 9:{//58 C3
+                            cout<<"Stream #"<<i<<"(58 C3) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
+                            numDecomp8k++;
+                            break;
+                        }
+                        case 10:{//58 85
+                            cout<<"Stream #"<<i<<"(58 85) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
+                            numDecomp8k++;
+                            break;
+                        }
+                        case 11:{//58 47
+                            cout<<"Stream #"<<i<<"(58 47) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
+                            numDecomp8k++;
+                            break;
+                        }
+                        case 12:{//58 09
+                            cout<<"Stream #"<<i<<"(58 09) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
+                            numDecomp8k++;
+                            break;
+                        }
+                        //4K window streams
+                        case 13:{
+                            cout<<"Stream #"<<i<<"(48 C7) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
+                            numDecomp4k++;
+                            break;
+                        }
+                        case 14:{
+                            cout<<"Stream #"<<i<<"(48 89) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
+                            numDecomp4k++;
+                            break;
+                        }
+                        case 15:{
+                            cout<<"Stream #"<<i<<"(48 4B) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
+                            numDecomp4k++;
+                            break;
+                        }
+                        case 16:{
+                            cout<<"Stream #"<<i<<"(48 0D) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
+                            numDecomp4k++;
+                            break;
+                        }
+                        //2K window streams
+                        case 17:{
+                            cout<<"Stream #"<<i<<"(38 CB) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
+                            numDecomp2k++;
+                            break;
+                        }
+                        case 18:{
+                            cout<<"Stream #"<<i<<"(38 8D) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
+                            numDecomp2k++;
+                            break;
+                        }
+                        case 19:{
+                            cout<<"Stream #"<<i<<"(38 4F) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
+                            numDecomp2k++;
+                            break;
+                        }
+                        case 20:{
+                            cout<<"Stream #"<<i<<"(38 11) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
+                            numDecomp2k++;
+                            break;
+                        }
+                        //1K window streams
+                        case 21:{
+                            cout<<"Stream #"<<i<<"(28 CF) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
+                            numDecomp1k++;
+                            break;
+                        }
+                        case 22:{
+                            cout<<"Stream #"<<i<<"(28 91) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
+                            numDecomp1k++;
+                            break;
+                        }
+                        case 23:{
+                            cout<<"Stream #"<<i<<"(28 53) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
+                            numDecomp1k++;
+                            break;
+                        }
+                        case 24:{
+                            cout<<"Stream #"<<i<<"(28 15) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
+                            numDecomp1k++;
+                            break;
+                        }
+                    }
+                    #endif // debug
+                    lastGoodOffset=offsetList[i].offset;
+                    lastStreamLength=strm.total_in;
+                    streamOffsetList.push_back(streamOffset(offsetList[i].offset, offsetList[i].offsetType, strm.total_in, strm.total_out));
+                    break;
+                }
                 case Z_BUF_ERROR:
                 {
+                    #ifdef debug
                     cout<<"decompression buffer was too short"<<endl;
+                    #endif // debug
                     memScale++;//increase buffer size for the next iteration
-                    j--;//make sure that we are retrying at this offset until the buffer is finally large enough
+                    i--;//make sure that we are retrying at this offset until the buffer is finally large enough
                     break;
                 }
                 default://shit hit the fan, should never happen normally
@@ -646,7 +645,7 @@ int main() {
         #ifdef debug
         else
         {
-            cout<<"skipping offset #"<<j<<" ("<<offsetList[j]<<") because it cannot be a header"<<endl;
+            cout<<"skipping offset #"<<i<<" ("<<offsetList[i].offset<<") because it cannot be a header"<<endl;
         }
         #endif // debug
     }
@@ -666,7 +665,7 @@ int main() {
     cout<<"Total decompressed streams: "<<(numDecomp32k+numDecomp16k+numDecomp8k+numDecomp4k+numDecomp2k+numDecomp1k)<<endl;
     #endif // debug
     cout<<"Good offsets: "<<streamOffsetList.size()<<endl;
-
+#if 0
     pause();
     //PHASE 3
     //start trying to find the parameters to use for recompression
