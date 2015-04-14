@@ -18,6 +18,7 @@ public:
     fileOffset(){
         offset=0;
         offsetType=1;
+        abort();//the default constructor should not be used in this version
     }
     fileOffset(int_fast64_t os, int ot){
         offset=os;
@@ -36,19 +37,26 @@ public:
         offsetType=1;
         streamLength=1;
         inflatedLength=1;
+        abort();//the default constructor should not be used in this version
     }
     streamOffset(int_fast64_t os, int ot, int_fast64_t sl, int_fast64_t il){
         offset=os;
         offsetType=ot;
         streamLength=sl;
         inflatedLength=il;
+        clevel=9;
+        window=15;
+        memlvl=9;
+        identBytes=0;
     }
     int_fast64_t offset;
     int offsetType;
     int_fast64_t streamLength;
     int_fast64_t inflatedLength;
-    //int_fast64_t offset;
-    //int_fast64_t offset;
+    int clevel;
+    int window;
+    int memlvl;
+    int_fast64_t identBytes;
 };
 
 int main() {
@@ -413,11 +421,7 @@ int main() {
     int_fast64_t lastStreamLength=0;
     int_fast64_t memScale=1;
 	int_fast64_t numOffsets=0;
-	int ret=-9;/*
-    vector<int_fast64_t> streamOffsetList;
-	vector<int_fast32_t> streamType;
-	vector<int_fast64_t> streamLength;
-	vector<int_fast64_t> inflatedLength;*/
+	int ret=-9;
 	vector<streamOffset> streamOffsetList;
 	z_stream strm;
     #ifdef debug
@@ -665,30 +669,33 @@ int main() {
     cout<<"Total decompressed streams: "<<(numDecomp32k+numDecomp16k+numDecomp8k+numDecomp4k+numDecomp2k+numDecomp1k)<<endl;
     #endif // debug
     cout<<"Good offsets: "<<streamOffsetList.size()<<endl;
-#if 0
+    offsetList.clear();
+    offsetList.shrink_to_fit();
+
     pause();
     //PHASE 3
     //start trying to find the parameters to use for recompression
     int_fast64_t numGoodOffsets;
     int_fast64_t identicalBytes;
     int_fast64_t numFullmatch=0;
-    vector<int_fast64_t> recompOffsetList;
+    int_fast64_t j=0;
+    /*vector<int_fast64_t> recompOffsetList;
     vector<int_fast64_t> streamOffsetClevel;
     vector<int_fast64_t> streamOffsetMemlevel;
     vector<int_fast64_t> streamOffsetWindow;
     vector<int_fast64_t> streamOffsetHdrMismatch;
-    vector<int_fast64_t> streamOffsetIdenticalBytes;
+    vector<int_fast64_t> streamOffsetIdenticalBytes;*/
     int memlevel=9;
     int clevel=9;
     int window=15;
-    int sizediffTresh=64;
     bool fullmatch=false;
-    bool found=false;
+    //bool found=false;
     z_stream strm1;
 
-    bool slowmode=true;
+    int sizediffTresh=64;//streams are only compared when the size difference is <= sizediffTresh
+    bool slowmode=true;//slowmode bruteforces the zlib parameters, optimized mode only tries probable parameters based on the 2-byte header
     #ifdef debug
-    int_fast64_t concentrate=-1;//only try to recompress the stream# givel here, -1 for normal mode
+    int_fast64_t concentrate=-1;//only try to recompress the stream# givel here, -1 disables this and runs on all streams
     #endif // debug
 
     numGoodOffsets=streamOffsetList.size();
@@ -706,8 +713,8 @@ int main() {
         memlevel=9;
         window=15;
         //the lengths of the zlib streams have been saved by the previous phase
-        strm.avail_in = streamLength[j];
-        strm.next_in=rBuffer+streamOffsetList[j];//this is effectively adding an integer to a pointer, resulting in a pointer
+        strm.avail_in = streamOffsetList[j].streamLength;
+        strm.next_in=rBuffer+streamOffsetList[j].offset;//this is effectively adding an integer to a pointer, resulting in a pointer
         //initialize the stream for decompression and check for error
         ret=inflateInit(&strm);
         if (ret != Z_OK)
@@ -717,10 +724,10 @@ int main() {
             abort();
         }
         //a buffer needs to be created to hold the resulting decompressed data
-        //since we have already deompressed the data before, we know how large of a buffer we need to allocate
-        unsigned char* decompBuffer= new unsigned char[inflatedLength[j]];
+        //since we have already deompressed the data before, we know exactly how large of a buffer we need to allocate
+        unsigned char* decompBuffer= new unsigned char[streamOffsetList[j].inflatedLength];
         strm.next_out=decompBuffer;
-        strm.avail_out=inflatedLength[j];
+        strm.avail_out=streamOffsetList[j].inflatedLength;
         ret=inflate(&strm, Z_FINISH);//try to do the actual decompression in one pass
         //check the return value
         switch (ret){
@@ -733,7 +740,7 @@ int main() {
                 if (slowmode){
                     #ifdef debug
                     cout<<"   entering slow mode"<<endl;
-                    cout<<"   stream type: "<<streamType[j]<<endl;
+                    cout<<"   stream type: "<<streamOffsetList[j].offsetType<<endl;
                     #endif // debug
                     do{
                         memlevel=9;
@@ -764,9 +771,9 @@ int main() {
                                 #endif // debug
 
                                 //prepare for compressing in one pass
-                                strm1.avail_in=inflatedLength[j];
-                                unsigned char* recompBuffer=new unsigned char[deflateBound(&strm1, inflatedLength[j])]; //allocate output for worst case
-                                strm1.avail_out=deflateBound(&strm1, inflatedLength[j]);
+                                strm1.avail_in=streamOffsetList[j].inflatedLength;
+                                unsigned char* recompBuffer=new unsigned char[deflateBound(&strm1, streamOffsetList[j].inflatedLength)]; //allocate output for worst case
+                                strm1.avail_out=deflateBound(&strm1, streamOffsetList[j].inflatedLength);
                                 strm1.next_out=recompBuffer;
                                 ret=deflate(&strm1, Z_FINISH);//do the actual compression
                                 //check the return value to see if everything went well
@@ -780,27 +787,33 @@ int main() {
                                 #endif // debug
 
                                 //test if the recompressed stream matches the input data
-                                if (strm1.total_out!=streamLength[j]){
+                                if (strm1.total_out!=streamOffsetList[j].streamLength){
                                     identicalBytes=0;
                                     #ifdef debug
-                                    cout<<"   size difference: "<<(strm1.total_out-streamLength[j])<<endl;
-                                    if (abs((strm1.total_out-streamLength[j]))>sizediffTresh){
+                                    cout<<"   size difference: "<<(strm1.total_out-streamOffsetList[j].streamLength)<<endl;
+                                    if (abs((strm1.total_out-streamOffsetList[j].streamLength))>sizediffTresh){
                                         cout<<"   size difference is greater than "<<sizediffTresh<<" bytes, not comparing"<<endl;
                                     } else {
-                                        if (strm1.total_out<streamLength[j]){
+                                        if (strm1.total_out<streamOffsetList[j].streamLength){
                                             for (i=0; i<strm1.total_out;i++){
-                                                if ((recompBuffer[i]-rBuffer[(i+streamOffsetList[j])])==0){
+                                                if ((recompBuffer[i]-rBuffer[(i+streamOffsetList[j].offset)])==0){
                                                     identicalBytes++;
                                                 }
                                             }
                                         } else {
-                                            for (i=0; i<streamLength[j];i++){
-                                                if ((recompBuffer[i]-rBuffer[(i+streamOffsetList[j])])==0){
+                                            for (i=0; i<streamOffsetList[j].streamLength;i++){
+                                                if ((recompBuffer[i]-rBuffer[(i+streamOffsetList[j].offset)])==0){
                                                     identicalBytes++;
                                                 }
                                             }
                                         }
-                                        cout<<"   "<<identicalBytes<<" bytes out of "<<streamLength[j]<<" identical"<<endl;
+                                        cout<<"   "<<identicalBytes<<" bytes out of "<<streamOffsetList[j].streamLength<<" identical"<<endl;
+                                        if (identicalBytes>streamOffsetList[j].identBytes){
+                                            streamOffsetList[j].identBytes=identicalBytes;
+                                            streamOffsetList[j].clevel=clevel;
+                                            streamOffsetList[j].memlvl=memlevel;
+                                            streamOffsetList[j].window=window;
+                                        }
                                     }
                                     #endif // debug
                                     clevel--;
@@ -810,46 +823,35 @@ int main() {
                                     #endif // debug
                                     identicalBytes=0;
                                     for (i=0; i<strm1.total_out;i++){
-                                        if ((recompBuffer[i]-rBuffer[(i+streamOffsetList[j])])==0){
+                                        if ((recompBuffer[i]-rBuffer[(i+streamOffsetList[j].offset)])==0){
                                             identicalBytes++;
                                         }
                                     }
-                                    if (identicalBytes==streamLength[j]){
+                                    if (identicalBytes>streamOffsetList[j].identBytes){
+                                        streamOffsetList[j].identBytes=identicalBytes;
+                                        streamOffsetList[j].clevel=clevel;
+                                        streamOffsetList[j].memlvl=memlevel;
+                                        streamOffsetList[j].window=window;
+                                    }
+                                    if (identicalBytes==streamOffsetList[j].streamLength){
                                         #ifdef debug
                                         cout<<"   recompression succesful, full match"<<endl;
                                         #endif // debug
                                         fullmatch=true;
                                         numFullmatch++;
-                                        recompOffsetList.push_back(streamOffsetList[j]);
-                                        streamOffsetClevel.push_back(clevel);
-                                        streamOffsetMemlevel.push_back(memlevel);
-                                        streamOffsetWindow.push_back(window);
-                                        streamOffsetHdrMismatch.push_back(0);
                                     } else {
-                                        #ifdef debug
-                                        cout<<"   partial match, "<<identicalBytes<<" bytes out of "<<streamLength[j]<<" identical"<<endl;
-                                        if (((streamLength[j]-identicalBytes)==2)&&((recompBuffer[0]-rBuffer[streamOffsetList[j]])!=0)&&((recompBuffer[1]-rBuffer[(1+streamOffsetList[j])])!=0)){
+                                        cout<<"   partial match, "<<identicalBytes<<" bytes out of "<<streamOffsetList[j].streamLength<<" identical"<<endl;
+                                        if (((streamOffsetList[j].streamLength-identicalBytes)==2)&&((recompBuffer[0]-rBuffer[streamOffsetList[j].offset])!=0)&&((recompBuffer[1]-rBuffer[(1+streamOffsetList[j].offset)])!=0)){
                                             cout<<"   2 byte header mismatch, accepting"<<endl;
                                             fullmatch=true;
                                             numFullmatch++;
-                                            recompOffsetList.push_back(streamOffsetList[j]);
-                                            streamOffsetClevel.push_back(clevel);
-                                            streamOffsetMemlevel.push_back(memlevel);
-                                            streamOffsetWindow.push_back(window);
-                                            streamOffsetHdrMismatch.push_back(1);
                                         }
-                                        if (((streamLength[j]-identicalBytes)==1)&&(((recompBuffer[0]-rBuffer[streamOffsetList[j]])!=0)||((recompBuffer[1]-rBuffer[(1+streamOffsetList[j])])!=0))){
+                                        if (((streamOffsetList[j].streamLength-identicalBytes)==1)&&(((recompBuffer[0]-rBuffer[streamOffsetList[j].offset])!=0)||((recompBuffer[1]-rBuffer[(1+streamOffsetList[j].offset)])!=0))){
                                             cout<<"   1 byte header mismatch, accepting"<<endl;
                                             fullmatch=true;
                                             numFullmatch++;
-                                            recompOffsetList.push_back(streamOffsetList[j]);
-                                            streamOffsetClevel.push_back(clevel);
-                                            streamOffsetMemlevel.push_back(memlevel);
-                                            streamOffsetWindow.push_back(window);
-                                            streamOffsetHdrMismatch.push_back(1);
                                         }
                                         //pause();
-                                        #endif // debug
                                         clevel--;
                                     }
                                 }
@@ -875,7 +877,7 @@ int main() {
                 #ifdef debug
                 cout<<"   entering optimized mode"<<endl;
                 #endif // debug
-                switch (streamType[j]){
+                switch (streamOffsetList[j].offsetType){
                     case 1:{
                         #ifdef debug
                         cout<<"   stream type: 1"<<endl;
@@ -902,9 +904,9 @@ int main() {
                             #endif // debug
 
                             //prepare for compressing in one pass
-                            strm1.avail_in=inflatedLength[j];
-                            unsigned char* recompBuffer=new unsigned char[deflateBound(&strm1, inflatedLength[j])]; //allocate output for worst case
-                            strm1.avail_out=deflateBound(&strm1, inflatedLength[j]);
+                            strm1.avail_in=streamOffsetList[j].inflatedLength;
+                            unsigned char* recompBuffer=new unsigned char[deflateBound(&strm1, streamOffsetList[j].inflatedLength)]; //allocate output for worst case
+                            strm1.avail_out=deflateBound(&strm1, streamOffsetList[j].inflatedLength);
                             strm1.next_out=recompBuffer;
                             ret=deflate(&strm1, Z_FINISH);//do the actual compression
                             //check the return value to see if everything went well
@@ -918,7 +920,7 @@ int main() {
                             #endif // debug
 
                             //test if the recompressed stream matches the input data
-                            if (strm1.total_out!=streamLength[j]){
+                            if (strm1.total_out!=streamOffsetList[j].streamLength){
                                 cout<<"   recompression failed, size difference"<<endl;
                                 memlevel--;
                             } else {
@@ -927,11 +929,11 @@ int main() {
                                 #endif // debug
                                 identicalBytes=0;
                                 for (i=0; i<strm1.total_out;i++){
-                                    if ((recompBuffer[i]-rBuffer[(i+streamOffsetList[j])])==0){
+                                    if ((recompBuffer[i]-rBuffer[(i+streamOffsetList[j].offset)])==0){
                                         identicalBytes++;
                                     }
                                 }
-                                if (identicalBytes==streamLength[j]){
+                                if (identicalBytes==streamOffsetList[j].streamLength){
                                     #ifdef debug
                                     cout<<"   recompression succesful, full match"<<endl;
                                     #endif // debug
@@ -939,7 +941,7 @@ int main() {
                                     numFullmatch++;
                                 } else {
                                     #ifdef debug
-                                    cout<<"   partial match, "<<identicalBytes<<" bytes out of "<<streamLength[j]<<" identical"<<endl;
+                                    cout<<"   partial match, "<<identicalBytes<<" bytes out of "<<streamOffsetList[j].streamLength<<" identical"<<endl;
                                     pause();
                                     #endif // debug
                                     memlevel--;
@@ -990,9 +992,9 @@ int main() {
                                 #endif // debug
 
                                 //prepare for compressing in one pass
-                                strm1.avail_in=inflatedLength[j];
-                                unsigned char* recompBuffer=new unsigned char[deflateBound(&strm1, inflatedLength[j])]; //allocate output for worst case
-                                strm1.avail_out=deflateBound(&strm1, inflatedLength[j]);
+                                strm1.avail_in=streamOffsetList[j].inflatedLength;
+                                unsigned char* recompBuffer=new unsigned char[deflateBound(&strm1, streamOffsetList[j].inflatedLength)]; //allocate output for worst case
+                                strm1.avail_out=deflateBound(&strm1, streamOffsetList[j].inflatedLength);
                                 strm1.next_out=recompBuffer;
                                 ret=deflate(&strm1, Z_FINISH);//do the actual compression
                                 //check the return value to see if everything went well
@@ -1006,7 +1008,7 @@ int main() {
                                 #endif // debug
 
                                 //test if the recompressed stream matches the input data
-                                if (strm1.total_out!=streamLength[j]){
+                                if (strm1.total_out!=streamOffsetList[j].streamLength){
                                     #ifdef debug
                                     cout<<"   recompression failed, size difference"<<endl;
                                     #endif // debug
@@ -1017,11 +1019,11 @@ int main() {
                                     #endif // debug
                                     identicalBytes=0;
                                     for (i=0; i<strm1.total_out;i++){
-                                        if ((recompBuffer[i]-rBuffer[(i+streamOffsetList[j])])==0){
+                                        if ((recompBuffer[i]-rBuffer[(i+streamOffsetList[j].offset)])==0){
                                             identicalBytes++;
                                         }
                                     }
-                                    if (identicalBytes==streamLength[j]){
+                                    if (identicalBytes==streamOffsetList[j].streamLength){
                                         #ifdef debug
                                         cout<<"   recompression succesful, full match"<<endl;
                                         #endif // debug
@@ -1029,7 +1031,7 @@ int main() {
                                         numFullmatch++;
                                     } else {
                                         #ifdef debug
-                                        cout<<"   partial match, "<<identicalBytes<<" bytes out of "<<streamLength[j]<<" identical"<<endl;
+                                        cout<<"   partial match, "<<identicalBytes<<" bytes out of "<<streamOffsetList[j].streamLength<<" identical"<<endl;
                                         pause();
                                         #endif // debug
                                         clevel--;
@@ -1091,24 +1093,24 @@ int main() {
     }
     cout<<endl;
     cout<<"recompressed streams:"<<numFullmatch<<" out of "<<numGoodOffsets<<endl;
-    cout<<"recompOffsetList.szize():"<<recompOffsetList.size()<<endl;
+    cout<<"streamOffsetList.size():"<<streamOffsetList.size()<<endl;
     cout<<endl;
-    cout<<"Recompressed stream info"<<endl;
-    for (j=0; j<recompOffsetList.size(); j++){
+    cout<<"Stream info"<<endl;
+    for (j=0; j<streamOffsetList.size(); j++){
         cout<<"-------------------------"<<endl;
-        cout<<"   recompressed stream #"<<j<<endl;
-        cout<<"   offset:"<<recompOffsetList[j]<<endl;
-        cout<<"   memlevel:"<<streamOffsetMemlevel[j]<<endl;
-        cout<<"   clevel:"<<streamOffsetClevel[j]<<endl;
-        cout<<"   window:"<<streamOffsetWindow[j]<<endl;
-        cout<<"   mismatched header bytes:"<<streamOffsetHdrMismatch[j]<<endl;
+        cout<<"   stream #"<<j<<endl;
+        cout<<"   offset:"<<streamOffsetList[j].offset<<endl;
+        cout<<"   memlevel:"<<streamOffsetList[j].memlvl<<endl;
+        cout<<"   clevel:"<<streamOffsetList[j].clevel<<endl;
+        cout<<"   window:"<<streamOffsetList[j].window<<endl;
+        cout<<"   best match:"<<streamOffsetList[j].identBytes<<" out of "<<streamOffsetList[j].streamLength<<endl;
     }
     cout<<endl;
-    cout<<"Streams not recompressed:"<<endl;
+    /*cout<<"Streams not recompressed:"<<endl;
     for (j=0; j<numGoodOffsets; j++){
         found=false;
         for (i=0; i<recompOffsetList.size(); i++){
-            if (recompOffsetList[i]==streamOffsetList[j]){
+            if (recompOffsetList[i]==streamOffsetList[j].offset){
                 found=true;
             }
             if (found) break;
@@ -1116,12 +1118,12 @@ int main() {
         if (!found) {
             cout<<"-------------------------"<<endl;
             cout<<"   stream #"<<j<<endl;
-            cout<<"   offset:"<<streamOffsetList[j]<<endl;
+            cout<<"   offset:"<<streamOffsetList[j].offset<<endl;
             cout<<"   type:"<<streamType[j]<<endl;
         }
-    }
+    }*/
 
-#endif
+
     /*int_fast64_t numGoodOffsets=streamOffsetList.size();
     int_fast64_t identical=0;
     for (j=0; j<numGoodOffsets; j++)
@@ -1132,8 +1134,8 @@ int main() {
         strm.zfree = Z_NULL;
         strm.opaque = Z_NULL;
         //the lengths of the zlib streams have been saved by the previous phase
-        strm.avail_in= streamLength[j];
-        strm.next_in=rBuffer+streamOffsetList[j];//this is effectively adding an integer to a pointer, resulting in a pointer
+        strm.avail_in= streamOffsetList[j].streamLength;
+        strm.next_in=rBuffer+streamOffsetList[j].offset;//this is effectively adding an integer to a pointer, resulting in a pointer
         //initialize the stream for decompression and check for error
         int ret=inflateInit(&strm);
         if (ret != Z_OK)
@@ -1144,9 +1146,9 @@ int main() {
         }
         //a buffer needs to be created to hold the resulting decompressed data
         //since we have already deompressed the data before, we know how large of a buffer we need to allocate
-        unsigned char* decompBuffer= new unsigned char[inflatedLength[j]];
+        unsigned char* decompBuffer= new unsigned char[streamOffsetList[j].inflatedLength];
         strm.next_out=decompBuffer;
-        strm.avail_out=inflatedLength[j];
+        strm.avail_out=streamOffsetList[j].inflatedLength;
         ret=inflate(&strm, Z_FINISH);//try to do the actual decompression in one pass
         //check the return value
         switch (ret){
@@ -1169,9 +1171,9 @@ int main() {
                         return ret;
                     }
                     //prepare for compressing in one pass
-                    recompstrm.avail_in=inflatedLength[j];
-                    unsigned char* recompBuffer=new unsigned char[deflateBound(&recompstrm, inflatedLength[j])]; //allocate output for worst case
-                    recompstrm.avail_out=deflateBound(&recompstrm, inflatedLength[j]);
+                    recompstrm.avail_in=streamOffsetList[j].inflatedLength;
+                    unsigned char* recompBuffer=new unsigned char[deflateBound(&recompstrm, streamOffsetList[j].inflatedLength)]; //allocate output for worst case
+                    recompstrm.avail_out=deflateBound(&recompstrm, streamOffsetList[j].inflatedLength);
                     recompstrm.next_out=recompBuffer;
                     ret=deflate(&recompstrm, Z_FINISH);
                     if (ret != Z_STREAM_END){
@@ -1180,16 +1182,16 @@ int main() {
                         return ret;
                     }
 
-                    if (recompstrm.total_out!=streamLength[j]){
+                    if (recompstrm.total_out!=streamOffsetList[j].streamLength){
                         cout<<"recompression failed, size difference"<<endl;
                         break;
                     }
-                    for(i=0;i<streamLength[j];i++){
-                        if ((recompBuffer[i]-rBuffer[(i+streamOffsetList[j])])==0){
+                    for(i=0;i<streamOffsetList[j].streamLength;i++){
+                        if ((recompBuffer[i]-rBuffer[(i+streamOffsetList[j].offset)])==0){
                             identical++;
                         }
                     }
-                    cout<<"identical bytes: "<<identical<<" out of "<<streamLength[j]<<endl;
+                    cout<<"identical bytes: "<<identical<<" out of "<<streamOffsetList[j].streamLength<<endl;
                     //deallocate the zlib stream, check for errors and deallocate the recompression buffer
                     ret=inflateEnd(&recompstrm);
                     if (ret!=Z_OK)
@@ -1220,9 +1222,9 @@ int main() {
                         return ret;
                     }
                     //prepare for compressing in one pass
-                    recompstrm.avail_in=inflatedLength[j];
-                    unsigned char* recompBuffer=new unsigned char[deflateBound(&recompstrm, inflatedLength[j])]; //allocate output for worst case
-                    recompstrm.avail_out=deflateBound(&recompstrm, inflatedLength[j]);
+                    recompstrm.avail_in=streamOffsetList[j].inflatedLength;
+                    unsigned char* recompBuffer=new unsigned char[deflateBound(&recompstrm, streamOffsetList[j].inflatedLength)]; //allocate output for worst case
+                    recompstrm.avail_out=deflateBound(&recompstrm, streamOffsetList[j].inflatedLength);
                     recompstrm.next_out=recompBuffer;
                     ret=deflate(&recompstrm, Z_FINISH);
                     if (ret != Z_STREAM_END){
@@ -1231,16 +1233,16 @@ int main() {
                         return ret;
                     }
 
-                    if (recompstrm.total_out!=streamLength[j]){
+                    if (recompstrm.total_out!=streamOffsetList[j].streamLength){
                         //cout<<"recompression failed, size difference"<<endl;
                         break;
                     }
-                    for(i=0;i<streamLength[j];i++){
-                        if ((recompBuffer[i]-rBuffer[(i+streamOffsetList[j])])==0){
+                    for(i=0;i<streamOffsetList[j].streamLength;i++){
+                        if ((recompBuffer[i]-rBuffer[(i+streamOffsetList[j].offset)])==0){
                             identical++;
                         }
                     }
-                    //cout<<"identical bytes: "<<identical<<" out of "<<streamLength[j]<<endl;
+                    //cout<<"identical bytes: "<<identical<<" out of "<<streamOffsetList[j].streamLength<<endl;
                     //deallocate the zlib stream, check for errors and deallocate the recompression buffer
                     ret=inflateEnd(&recompstrm);
                     if (ret!=Z_OK)
