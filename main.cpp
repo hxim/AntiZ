@@ -57,6 +57,10 @@ public:
     int window;
     int memlvl;
     int_fast64_t identBytes;
+    int_fast64_t firstDiffByte;//the offset of the first byte that does not match
+    std::vector<int_fast64_t> diffByteOffsets;//offsets of bytes that differ, this is an incremental offset list to enhance recompression, kinda like a PNG filter
+    //this improves compression if the mismatching bytes are consecutive, eg. 451,452,453,...(no repetitions, hard to compress)
+    //  transforms into 0, 1, 1, 1,...(repetitive, easy to compress)
 };
 
 int main() {
@@ -796,13 +800,13 @@ int main() {
                                     } else {
                                         if (strm1.total_out<streamOffsetList[j].streamLength){
                                             for (i=0; i<strm1.total_out;i++){
-                                                if ((recompBuffer[i]-rBuffer[(i+streamOffsetList[j].offset)])==0){
+                                                if (recompBuffer[i]==rBuffer[(i+streamOffsetList[j].offset)]){
                                                     identicalBytes++;
                                                 }
                                             }
                                         } else {
                                             for (i=0; i<streamOffsetList[j].streamLength;i++){
-                                                if ((recompBuffer[i]-rBuffer[(i+streamOffsetList[j].offset)])==0){
+                                                if (recompBuffer[i]==rBuffer[(i+streamOffsetList[j].offset)]){
                                                     identicalBytes++;
                                                 }
                                             }
@@ -823,7 +827,7 @@ int main() {
                                     #endif // debug
                                     identicalBytes=0;
                                     for (i=0; i<strm1.total_out;i++){
-                                        if ((recompBuffer[i]-rBuffer[(i+streamOffsetList[j].offset)])==0){
+                                        if (recompBuffer[i]==rBuffer[(i+streamOffsetList[j].offset)]){
                                             identicalBytes++;
                                         }
                                     }
