@@ -19,6 +19,7 @@
 				<Option compiler="gcc" />
 				<Compiler>
 					<Add option="-march=core2" />
+					<Add option="-O2" />
 					<Add option="-pg" />
 					<Add option="-g" />
 					<Add option="-Ddebug" />
