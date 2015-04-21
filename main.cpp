@@ -58,7 +58,7 @@ public:
     int window;
     int memlvl;
     int_fast64_t identBytes;
-    int_fast64_t firstDiffByte;//the offset of the first byte that does not match
+    int_fast64_t firstDiffByte;//the offset of the first byte that does not match, relative to stream start, not file start
     std::vector<int_fast64_t> diffByteOffsets;//offsets of bytes that differ, this is an incremental offset list to enhance recompression, kinda like a PNG filter
     //this improves compression if the mismatching bytes are consecutive, eg. 451,452,453,...(no repetitions, hard to compress)
     //  transforms into 0, 1, 1, 1,...(repetitive, easy to compress)
@@ -694,7 +694,7 @@ int main() {
     int sizediffTresh=8;//streams are only compared when the size difference is <= sizediffTresh
     bool slowmode=true;//slowmode bruteforces the zlib parameters, optimized mode only tries probable parameters based on the 2-byte header
     #ifdef debug
-    int_fast64_t concentrate=1;//only try to recompress the stream# givel here, -1 disables this and runs on all streams
+    int_fast64_t concentrate=-1;//only try to recompress the stream# givel here, -1 disables this and runs on all streams
     #endif // debug
 
     numGoodOffsets=streamOffsetList.size();
@@ -869,6 +869,8 @@ int main() {
                                         streamOffsetList[j].clevel=clevel;
                                         streamOffsetList[j].memlvl=memlevel;
                                         streamOffsetList[j].window=window;
+                                        streamOffsetList[j].firstDiffByte=-1;
+                                        streamOffsetList[j].diffByteOffsets.clear();
                                     }
                                     if (identicalBytes==streamOffsetList[j].streamLength){
                                         #ifdef debug
@@ -888,7 +890,21 @@ int main() {
                                             fullmatch=true;
                                             numFullmatch++;
                                         }
-                                        //pause();
+                                        int_fast64_t last_i=0;
+                                        for (i=0; i<strm1.total_out; i++){//compare the streams byte-by-byte
+                                            if (recompBuffer[i]!=rBuffer[(i+streamOffsetList[j].offset)]){//if a mismatching byte is found
+                                                if (streamOffsetList[j].firstDiffByte<0){//if the first different byte is negative, then this is the first
+                                                    streamOffsetList[j].firstDiffByte=(i);
+                                                    streamOffsetList[j].diffByteOffsets.push_back(0);
+                                                    cout<<"   first diff byte:"<<i<<endl;
+                                                    last_i=i;
+                                                } else {
+                                                    streamOffsetList[j].diffByteOffsets.push_back(i-last_i);
+                                                    cout<<"   different byte:"<<i<<endl;
+                                                    last_i=i;
+                                                }
+                                            }
+                                        }
                                         clevel--;
                                     }
                                 }
