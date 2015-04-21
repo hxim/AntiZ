@@ -48,6 +48,7 @@ public:
         window=15;
         memlvl=9;
         identBytes=0;
+        firstDiffByte=-1;
     }
     int_fast64_t offset;
     int offsetType;
@@ -683,12 +684,6 @@ int main() {
     int_fast64_t identicalBytes;
     int_fast64_t numFullmatch=0;
     int_fast64_t j=0;
-    /*vector<int_fast64_t> recompOffsetList;
-    vector<int_fast64_t> streamOffsetClevel;
-    vector<int_fast64_t> streamOffsetMemlevel;
-    vector<int_fast64_t> streamOffsetWindow;
-    vector<int_fast64_t> streamOffsetHdrMismatch;
-    vector<int_fast64_t> streamOffsetIdenticalBytes;*/
     int memlevel=9;
     int clevel=9;
     int window=15;
@@ -696,10 +691,10 @@ int main() {
     //bool found=false;
     z_stream strm1;
 
-    int sizediffTresh=64;//streams are only compared when the size difference is <= sizediffTresh
+    int sizediffTresh=8;//streams are only compared when the size difference is <= sizediffTresh
     bool slowmode=true;//slowmode bruteforces the zlib parameters, optimized mode only tries probable parameters based on the 2-byte header
     #ifdef debug
-    int_fast64_t concentrate=-1;//only try to recompress the stream# givel here, -1 disables this and runs on all streams
+    int_fast64_t concentrate=1;//only try to recompress the stream# givel here, -1 disables this and runs on all streams
     #endif // debug
 
     numGoodOffsets=streamOffsetList.size();
@@ -812,11 +807,49 @@ int main() {
                                             }
                                         }
                                         cout<<"   "<<identicalBytes<<" bytes out of "<<streamOffsetList[j].streamLength<<" identical"<<endl;
-                                        if (identicalBytes>streamOffsetList[j].identBytes){
+                                        if (identicalBytes>streamOffsetList[j].identBytes){//if this recompressed stream has more matching bytes than the previous best
                                             streamOffsetList[j].identBytes=identicalBytes;
                                             streamOffsetList[j].clevel=clevel;
                                             streamOffsetList[j].memlvl=memlevel;
                                             streamOffsetList[j].window=window;
+                                            streamOffsetList[j].firstDiffByte=-1;
+                                            streamOffsetList[j].diffByteOffsets.clear();
+                                            int_fast64_t last_i=0;
+                                            if (strm1.total_out<streamOffsetList[j].streamLength){//the recompressed stream is shorter than the original
+                                                for (i=0; i<strm1.total_out; i++){//compare the streams byte-by-byte
+                                                    if (recompBuffer[i]!=rBuffer[(i+streamOffsetList[j].offset)]){//if a mismatching byte is found
+                                                        if (streamOffsetList[j].firstDiffByte<0){//if the first different byte is negative, then this is the first
+                                                            streamOffsetList[j].firstDiffByte=(i);
+                                                            streamOffsetList[j].diffByteOffsets.push_back(0);
+                                                            cout<<"   first diff byte:"<<i<<endl;
+                                                            last_i=i;
+                                                        } else {
+                                                            streamOffsetList[j].diffByteOffsets.push_back(i-last_i);
+                                                            cout<<"   different byte:"<<i<<endl;
+                                                            last_i=i;
+                                                        }
+                                                    }
+                                                }
+                                                for (i=0; i<(streamOffsetList[j].streamLength-strm1.total_out); i++){
+                                                    streamOffsetList[j].diffByteOffsets.push_back(1);
+                                                    cout<<"   byte at the end added"<<endl;
+                                                }
+                                            } else {//the recompressed stream is longer than the original
+                                                for (i=0; i<streamOffsetList[j].streamLength;i++){
+                                                    if (recompBuffer[i]!=rBuffer[(i+streamOffsetList[j].offset)]){//if a mismatching byte is found
+                                                        if (streamOffsetList[j].firstDiffByte<0){//if the first different byte is negative, then this is the first
+                                                            streamOffsetList[j].firstDiffByte=(i);
+                                                            streamOffsetList[j].diffByteOffsets.push_back(0);
+                                                            cout<<"   first diff byte:"<<i<<endl;
+                                                            last_i=i;
+                                                        } else {
+                                                            streamOffsetList[j].diffByteOffsets.push_back(i-last_i);
+                                                            cout<<"   different byte:"<<i<<endl;
+                                                            last_i=i;
+                                                        }
+                                                    }
+                                                }
+                                            }
                                         }
                                     }
                                     #endif // debug
@@ -1110,291 +1143,7 @@ int main() {
         cout<<"   best match:"<<streamOffsetList[j].identBytes<<" out of "<<streamOffsetList[j].streamLength<<endl;
     }
     cout<<endl;
-    /*cout<<"Streams not recompressed:"<<endl;
-    for (j=0; j<numGoodOffsets; j++){
-        found=false;
-        for (i=0; i<recompOffsetList.size(); i++){
-            if (recompOffsetList[i]==streamOffsetList[j].offset){
-                found=true;
-            }
-            if (found) break;
-        }
-        if (!found) {
-            cout<<"-------------------------"<<endl;
-            cout<<"   stream #"<<j<<endl;
-            cout<<"   offset:"<<streamOffsetList[j].offset<<endl;
-            cout<<"   type:"<<streamType[j]<<endl;
-        }
-    }*/
 
-
-    /*int_fast64_t numGoodOffsets=streamOffsetList.size();
-    int_fast64_t identical=0;
-    for (j=0; j<numGoodOffsets; j++)
-    {
-        //create a new Zlib stream to do decompression
-        z_stream strm;
-        strm.zalloc = Z_NULL;
-        strm.zfree = Z_NULL;
-        strm.opaque = Z_NULL;
-        //the lengths of the zlib streams have been saved by the previous phase
-        strm.avail_in= streamOffsetList[j].streamLength;
-        strm.next_in=rBuffer+streamOffsetList[j].offset;//this is effectively adding an integer to a pointer, resulting in a pointer
-        //initialize the stream for decompression and check for error
-        int ret=inflateInit(&strm);
-        if (ret != Z_OK)
-        {
-            cout<<"inflateInit() failed with exit code:"<<ret<<endl;//should never happen normally
-            pause();
-            return ret;
-        }
-        //a buffer needs to be created to hold the resulting decompressed data
-        //since we have already deompressed the data before, we know how large of a buffer we need to allocate
-        unsigned char* decompBuffer= new unsigned char[streamOffsetList[j].inflatedLength];
-        strm.next_out=decompBuffer;
-        strm.avail_out=streamOffsetList[j].inflatedLength;
-        ret=inflate(&strm, Z_FINISH);//try to do the actual decompression in one pass
-        //check the return value
-        switch (ret){
-        case Z_STREAM_END://decompression was succesful
-        {
-            cout<<"decompressed good offset #"<<j<<endl;
-            z_stream recompstrm;
-            recompstrm.zalloc = Z_NULL;
-            recompstrm.zfree = Z_NULL;
-            recompstrm.opaque = Z_NULL;
-            recompstrm.next_in=decompBuffer;
-            switch(offsetType[j]){
-                //32K window streams
-                case 1:{//78 01
-                    cout<<"Stream #"<<j<<"(78 01) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
-                    ret = deflateInit2(&recompstrm, 1, Z_DEFLATED, 15, 8, Z_DEFAULT_STRATEGY);//1 is the compression level,15 is the 32K window size, 8 is the default memory level
-                    if (ret != Z_OK){
-                        cout<<"deflateInit() failed with exit code:"<<ret<<endl;
-                        pause();
-                        return ret;
-                    }
-                    //prepare for compressing in one pass
-                    recompstrm.avail_in=streamOffsetList[j].inflatedLength;
-                    unsigned char* recompBuffer=new unsigned char[deflateBound(&recompstrm, streamOffsetList[j].inflatedLength)]; //allocate output for worst case
-                    recompstrm.avail_out=deflateBound(&recompstrm, streamOffsetList[j].inflatedLength);
-                    recompstrm.next_out=recompBuffer;
-                    ret=deflate(&recompstrm, Z_FINISH);
-                    if (ret != Z_STREAM_END){
-                        cout<<"recompression failed with exit code:"<<ret<<endl;
-                        pause();
-                        return ret;
-                    }
-
-                    if (recompstrm.total_out!=streamOffsetList[j].streamLength){
-                        cout<<"recompression failed, size difference"<<endl;
-                        break;
-                    }
-                    for(i=0;i<streamOffsetList[j].streamLength;i++){
-                        if ((recompBuffer[i]-rBuffer[(i+streamOffsetList[j].offset)])==0){
-                            identical++;
-                        }
-                    }
-                    cout<<"identical bytes: "<<identical<<" out of "<<streamOffsetList[j].streamLength<<endl;
-                    //deallocate the zlib stream, check for errors and deallocate the recompression buffer
-                    ret=inflateEnd(&recompstrm);
-                    if (ret!=Z_OK)
-                    {
-                        cout<<"inflateEnd() failed with exit code:"<<ret<<endl;//should never happen normally
-                        pause();
-                        return ret;
-                    }
-                    delete [] recompBuffer;
-                    break;
-                }
-                case 2:{//78 5E
-                    cout<<"Stream #"<<j<<"(78 5E) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
-                    numDecomp32k++;
-                    break;
-                }
-                case 3:{//78 9C
-                    cout<<"Stream #"<<j<<"(78 9C) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
-                    numDecomp32k++;
-                    break;
-                }
-                case 4:{//78 DA
-                    cout<<"Stream #"<<j<<"(78 DA) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
-                    ret = deflateInit2(&recompstrm, 9, Z_DEFLATED, 15, 8, Z_DEFAULT_STRATEGY);//1 is the compression level,15 is the 32K window size, 8 is the default memory level
-                    if (ret != Z_OK){
-                        cout<<"deflateInit() failed with exit code:"<<ret<<endl;
-                        pause();
-                        return ret;
-                    }
-                    //prepare for compressing in one pass
-                    recompstrm.avail_in=streamOffsetList[j].inflatedLength;
-                    unsigned char* recompBuffer=new unsigned char[deflateBound(&recompstrm, streamOffsetList[j].inflatedLength)]; //allocate output for worst case
-                    recompstrm.avail_out=deflateBound(&recompstrm, streamOffsetList[j].inflatedLength);
-                    recompstrm.next_out=recompBuffer;
-                    ret=deflate(&recompstrm, Z_FINISH);
-                    if (ret != Z_STREAM_END){
-                        cout<<"recompression failed with exit code:"<<ret<<endl;
-                        pause();
-                        return ret;
-                    }
-
-                    if (recompstrm.total_out!=streamOffsetList[j].streamLength){
-                        //cout<<"recompression failed, size difference"<<endl;
-                        break;
-                    }
-                    for(i=0;i<streamOffsetList[j].streamLength;i++){
-                        if ((recompBuffer[i]-rBuffer[(i+streamOffsetList[j].offset)])==0){
-                            identical++;
-                        }
-                    }
-                    //cout<<"identical bytes: "<<identical<<" out of "<<streamOffsetList[j].streamLength<<endl;
-                    //deallocate the zlib stream, check for errors and deallocate the recompression buffer
-                    ret=inflateEnd(&recompstrm);
-                    if (ret!=Z_OK)
-                    {
-                        cout<<"inflateEnd() failed with exit code:"<<ret<<endl;//should never happen normally
-                        pause();
-                        return ret;
-                    }
-                    delete [] recompBuffer;
-                    break;
-                }
-                        //16K window streams
-                case 5:{//68 DE
-                    cout<<"Stream #"<<j<<"(68 DE) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
-                    numDecomp16k++;
-                    break;
-                }
-                case 6:{//68 81
-                    cout<<"Stream #"<<j<<"(68 81) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
-                    numDecomp16k++;
-                    break;
-                }
-                case 7:{//68 43
-                    cout<<"Stream #"<<j<<"(68 43) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
-                    numDecomp16k++;
-                    break;
-                }
-                case 8:{//68 05
-                    cout<<"Stream #"<<j<<"(68 05) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
-                    numDecomp16k++;
-                    break;
-                }
-                //8K window streams
-                case 9:{//58 C3
-                    cout<<"Stream #"<<j<<"(58 C3) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
-                    numDecomp8k++;
-                    break;
-                }
-                case 10:{//58 85
-                    cout<<"Stream #"<<j<<"(58 85) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
-                    numDecomp8k++;
-                    break;
-                }
-                case 11:{//58 47
-                    cout<<"Stream #"<<j<<"(58 47) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
-                    numDecomp8k++;
-                    break;
-                }
-                case 12:{//58 09
-                    cout<<"Stream #"<<j<<"(58 09) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
-                    numDecomp8k++;
-                    break;
-                }
-                //4K window streams
-                case 13:{
-                    cout<<"Stream #"<<j<<"(48 C7) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
-                    numDecomp4k++;
-                    break;
-                }
-                case 14:{
-                    cout<<"Stream #"<<j<<"(48 89) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
-                    numDecomp4k++;
-                    break;
-                }
-                case 15:{
-                    cout<<"Stream #"<<j<<"(48 4B) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
-                    numDecomp4k++;
-                    break;
-                }
-                case 16:{
-                    cout<<"Stream #"<<j<<"(48 0D) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
-                    numDecomp4k++;
-                    break;
-                }
-                //2K window streams
-                case 17:{
-                    cout<<"Stream #"<<j<<"(38 CB) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
-                    numDecomp2k++;
-                    break;
-                }
-                case 18:{
-                    cout<<"Stream #"<<j<<"(38 8D) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
-                    numDecomp2k++;
-                    break;
-                }
-                case 19:{
-                    cout<<"Stream #"<<j<<"(38 4F) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
-                    numDecomp2k++;
-                    break;
-                }
-                case 20:{
-                    cout<<"Stream #"<<j<<"(38 11) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
-                    numDecomp2k++;
-                    break;
-                }
-                //1K window streams
-                case 21:{
-                    cout<<"Stream #"<<j<<"(28 CF) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
-                    numDecomp1k++;
-                    break;
-                }
-                case 22:{
-                    cout<<"Stream #"<<j<<"(28 91) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
-                    numDecomp1k++;
-                    break;
-                }
-                case 23:{
-                    cout<<"Stream #"<<j<<"(28 53) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
-                    numDecomp1k++;
-                    break;
-                }
-                case 24:{
-                    cout<<"Stream #"<<j<<"(28 15) decompressed, "<<strm.total_in<<" bytes to "<<strm.total_out<<" bytes"<<endl;
-                    numDecomp1k++;
-                    break;
-                }
-            }
-            break;
-        }
-        case Z_DATA_ERROR://the compressed data was invalid, most likely it was not a good offset
-        {
-            cout<<"inflate() failed with data error"<<endl;
-            pause();
-            return ret;
-        }
-        case Z_BUF_ERROR:
-        {
-            cout<<"inflate() failed with memory error"<<endl;
-            pause();
-            return ret;
-        }
-        default://shit hit the fan, should never happen normally
-        {
-            cout<<"inflate() failed with exit code:"<<ret<<endl;
-            pause();
-            return ret;
-        }
-        }
-        //deallocate the zlib stream, check for errors and deallocate the decompression buffer
-        ret=inflateEnd(&strm);
-        if (ret!=Z_OK)
-        {
-            cout<<"inflateEnd() failed with exit code:"<<ret<<endl;//should never happen normally
-            pause();
-            return ret;
-        }
-        delete [] decompBuffer;
-    }*/
     pause();
     delete [] rBuffer;
 	return 0;
