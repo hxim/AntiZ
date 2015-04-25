@@ -691,10 +691,10 @@ int main() {
     //bool found=false;
     z_stream strm1;
 
-    int sizediffTresh=8;//streams are only compared when the size difference is <= sizediffTresh
+    int sizediffTresh=128;//streams are only compared when the size difference is <= sizediffTresh
     bool slowmode=true;//slowmode bruteforces the zlib parameters, optimized mode only tries probable parameters based on the 2-byte header
     #ifdef debug
-    int_fast64_t concentrate=4;//only try to recompress the stream# givel here, -1 disables this and runs on all streams
+    int_fast64_t concentrate=-1;//only try to recompress the stream# givel here, -1 disables this and runs on all streams
     #endif // debug
 
     numGoodOffsets=streamOffsetList.size();
@@ -825,7 +825,7 @@ int main() {
                                                             last_i=i;
                                                         } else {
                                                             streamOffsetList[j].diffByteOffsets.push_back(i-last_i);
-                                                            cout<<"   different byte:"<<i<<endl;
+                                                            //cout<<"   different byte:"<<i<<endl;
                                                             last_i=i;
                                                         }
                                                     }
@@ -844,7 +844,7 @@ int main() {
                                                             last_i=i;
                                                         } else {
                                                             streamOffsetList[j].diffByteOffsets.push_back(i-last_i);
-                                                            cout<<"   different byte:"<<i<<endl;
+                                                            //cout<<"   different byte:"<<i<<endl;
                                                             last_i=i;
                                                         }
                                                     }
@@ -870,6 +870,12 @@ int main() {
                                         #endif // debug
                                         fullmatch=true;
                                         numFullmatch++;
+                                        streamOffsetList[j].identBytes=identicalBytes;
+                                        streamOffsetList[j].clevel=clevel;
+                                        streamOffsetList[j].memlvl=memlevel;
+                                        streamOffsetList[j].window=window;
+                                        streamOffsetList[j].firstDiffByte=-1;
+                                        streamOffsetList[j].diffByteOffsets.clear();
                                     } else {
                                         cout<<"   partial match, "<<identicalBytes<<" bytes out of "<<streamOffsetList[j].streamLength<<" identical"<<endl;
                                         if (((streamOffsetList[j].streamLength-identicalBytes)==2)&&((recompBuffer[0]-rBuffer[streamOffsetList[j].offset])!=0)&&((recompBuffer[1]-rBuffer[(1+streamOffsetList[j].offset)])!=0)){
@@ -1168,6 +1174,8 @@ int main() {
     cout<<"streamOffsetList.size():"<<streamOffsetList.size()<<endl;
     cout<<endl;
     cout<<"Stream info"<<endl;
+    int recomp=0;
+    int recompTresh=128;
     for (j=0; j<streamOffsetList.size(); j++){
         cout<<"-------------------------"<<endl;
         cout<<"   stream #"<<j<<endl;
@@ -1177,13 +1185,16 @@ int main() {
         cout<<"   window:"<<streamOffsetList[j].window<<endl;
         cout<<"   best match:"<<streamOffsetList[j].identBytes<<" out of "<<streamOffsetList[j].streamLength<<endl;
         cout<<streamOffsetList[j].diffByteOffsets.size()<<endl;
+        if (streamOffsetList[j].diffByteOffsets.size()<recompTresh){
+            recomp++;
+        }
         cout<<"   mismatched bytes:";
         for (i=0; i<streamOffsetList[j].diffByteOffsets.size(); i++){
             cout<<streamOffsetList[j].diffByteOffsets[i]<<";";
         }
         cout<<endl;
     }
-    cout<<endl;
+    cout<<"recompressed:"<<recomp<<"/"<<streamOffsetList.size()<<endl;
 
     pause();
     delete [] rBuffer;
