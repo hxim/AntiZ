@@ -689,9 +689,10 @@ int main() {
     int clevel=9;
     int window=15;
     bool fullmatch=false;
-    //bool found=false;
     z_stream strm1;
+    int recomp=0;
 
+    int recompTresh=128;//streams are only recompressed if the best match differs from the original in <= recompTresh bytes
     int sizediffTresh=128;//streams are only compared when the size difference is <= sizediffTresh
     //DO NOT turn off slowmode, the alternative code (optimized mode) does not work at all
     bool slowmode=true;//slowmode bruteforces the zlib parameters, optimized mode only tries probable parameters based on the 2-byte header
@@ -1192,8 +1193,6 @@ int main() {
     cout<<"streamOffsetList.size():"<<streamOffsetList.size()<<endl;
     cout<<endl;
     cout<<"Stream info"<<endl;
-    int recomp=0;
-    int recompTresh=128;
     for (j=0; j<streamOffsetList.size(); j++){
         cout<<"-------------------------"<<endl;
         cout<<"   stream #"<<j<<endl;
@@ -1204,7 +1203,7 @@ int main() {
         cout<<"   best match:"<<streamOffsetList[j].identBytes<<" out of "<<streamOffsetList[j].streamLength<<endl;
         cout<<"   diffBytes:"<<streamOffsetList[j].diffByteOffsets.size()<<endl;
         cout<<"   diffVals:"<<streamOffsetList[j].diffByteVal.size()<<endl;
-        if (streamOffsetList[j].diffByteOffsets.size()<recompTresh){
+        if (streamOffsetList[j].diffByteOffsets.size()<=recompTresh){
             recomp++;
         }
         cout<<"   mismatched bytes:";
@@ -1214,6 +1213,12 @@ int main() {
         cout<<endl;
     }
     cout<<"recompressed:"<<recomp<<"/"<<streamOffsetList.size()<<endl;
+    pause();
+
+    //PHASE 4
+    //take the information created in phase 3 and use it to create an ATZ file(see ATZ file format spec.)
+
+
 
     pause();
     delete [] rBuffer;
