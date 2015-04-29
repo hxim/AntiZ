@@ -1314,26 +1314,30 @@ int main() {
         }
     }
     pause();
-    uint64_t lastos,lastlen=0;
+    uint64_t lastos=0;
+    uint64_t lastlen=0;
     for(j=0;j<streamOffsetList.size();j++){
         if ((lastos+lastlen)==streamOffsetList[j].offset){
             cout<<"no gap before stream #"<<j<<endl;
             if (streamOffsetList[j].recomp==false){
                 cout<<"copying stream #"<<j<<endl;
-                outfile.write(reinterpret_cast<char*>(&rBuffer+streamOffsetList[j].offset), streamOffsetList[j].streamLength);
+                outfile.write(reinterpret_cast<char*>(rBuffer+streamOffsetList[j].offset), streamOffsetList[j].streamLength);
             }
         }else{
             cout<<"gap of "<<(streamOffsetList[j].offset-(lastos+lastlen))<<" bytes before stream #"<<j<<endl;
-            outfile.write(reinterpret_cast<char*>(&rBuffer+lastos+lastlen), (streamOffsetList[j].offset-(lastos+lastlen)));
+            outfile.write(reinterpret_cast<char*>(rBuffer+lastos+lastlen), (streamOffsetList[j].offset-(lastos+lastlen)));
             if (streamOffsetList[j].recomp==false){
                 cout<<"copying stream #"<<j<<endl;
-                outfile.write(reinterpret_cast<char*>(&rBuffer+streamOffsetList[j].offset), streamOffsetList[j].streamLength);
+                outfile.write(reinterpret_cast<char*>(rBuffer+streamOffsetList[j].offset), streamOffsetList[j].streamLength);
             }
         }
         lastos=streamOffsetList[j].offset;
         lastlen=streamOffsetList[j].streamLength;
     }
-
+    if((lastos+lastlen)<infileSize){
+        cout<<(infileSize-(lastos+lastlen))<<" bytes copied from the end of the file"<<endl;
+        outfile.write(reinterpret_cast<char*>(rBuffer+lastos+lastlen), (infileSize-(lastos+lastlen)));
+    }
     pause();
     delete [] rBuffer;
     outfile.close();
