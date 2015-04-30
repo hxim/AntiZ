@@ -1232,10 +1232,8 @@ int main() {
         outfile.write(reinterpret_cast<char*>(atz1), 4);
         delete [] atz1;
     }
-    {//placeholder for the length of the atz file
-        uint64_t atzlen=0;
-        outfile.write(reinterpret_cast<char*>(&atzlen), 8);
-    }
+    uint64_t atzlen=0;//placeholder for the length of the atz file
+    outfile.write(reinterpret_cast<char*>(&atzlen), 8);
     outfile.write(reinterpret_cast<char*>(&infileSize), 8);//the length of the original file
     outfile.write(reinterpret_cast<char*>(&recomp), 8);//number of recompressed streams
 
@@ -1313,10 +1311,10 @@ int main() {
             delete [] decompBuffer;
         }
     }
-    pause();
+
     uint64_t lastos=0;
     uint64_t lastlen=0;
-    for(j=0;j<streamOffsetList.size();j++){
+    for(j=0;j<streamOffsetList.size();j++){//write the gaps before streams and non-recompressed streams to disk as the residue
         if ((lastos+lastlen)==streamOffsetList[j].offset){
             cout<<"no gap before stream #"<<j<<endl;
             if (streamOffsetList[j].recomp==false){
@@ -1334,12 +1332,50 @@ int main() {
         lastos=streamOffsetList[j].offset;
         lastlen=streamOffsetList[j].streamLength;
     }
-    if((lastos+lastlen)<infileSize){
+    if((lastos+lastlen)<infileSize){//if there is stuff after the last stream, write that to disk too
         cout<<(infileSize-(lastos+lastlen))<<" bytes copied from the end of the file"<<endl;
         outfile.write(reinterpret_cast<char*>(rBuffer+lastos+lastlen), (infileSize-(lastos+lastlen)));
     }
+
+    atzlen=outfile.tellp();
+    cout<<"Total bytes written: "<<atzlen<<endl;
+    outfile.seekp(4);
+    outfile.write(reinterpret_cast<char*>(&atzlen), 8);
+    pause();
+    streamOffsetList.clear();
+    streamOffsetList.shrink_to_fit();
+    outfile.close();
+
+    //PHASE 5: verify that we can reconstruct the original file, using only data from the ATZ file
+
+    std::ifstream atzfile(filename_out, std::ios::in | std::ios::binary);
+	if (!atzfile.is_open()) {
+       cout << "error: open ATZ file for input failed!" << endl;
+       pause();
+ 	   abort();
+	}
+    if (stat(filename_out, &statresults) == 0){
+    	cout<<"File size:"<<statresults.st_size<<endl;
+    }
+    else{
+    	cout<<"Error determining file size."<<endl;
+    	pause();
+    	abort();
+    }
+    infileSize=statresults.st_size;
+    //setting up read buffer and reading the entire file into the buffer
+    unsigned char* atzBuffer = new unsigned char[infileSize];
+    atzfile.read(reinterpret_cast<char*>(atzBuffer), infileSize);
+    atzfile.close();
+
+    if ((atzBuffer[0]!=65)||(atzBuffer[1]!=84)||(atzBuffer[2]!=90)||(atzBuffer[3]!=1)){
+        cout<<"ATZ1 header not found"<<endl;
+        pause();
+        abort();
+    }
+
+
     pause();
     delete [] rBuffer;
-    outfile.close();
 	return 0;
 }
