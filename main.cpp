@@ -74,7 +74,7 @@ public:
     //  transforms into 0, 1, 1, 1,...(repetitive, easy to compress)
     std::vector<unsigned char> diffByteVal;
     bool recomp;
-    uint64_t atzInfos;//relative to atz file start
+    unsigned char* atzInfos;
 };
 
 int main() {
@@ -1421,11 +1421,13 @@ int main() {
                     streamOffsetList[j].diffByteOffsets.push_back(*reinterpret_cast<uint64_t*>(&atzBuffer[43+8*i+lastos]));
                     streamOffsetList[j].diffByteVal.push_back(atzBuffer[43+diffbytes*8+i+lastos]);
                 }
-                streamOffsetList[j].atzInfos=*reinterpret_cast<uint64_t*>(&atzBuffer[43+diffbytes*9+lastos]);
+                streamOffsetList[j].atzInfos=&atzBuffer[43+diffbytes*9+lastos];
                 lastos=lastos+43+diffbytes*9+streamOffsetList[j].inflatedLength;
             } else{
                 streamOffsetList[j].firstDiffByte=-1;
-                streamOffsetList[j].atzInfos=*reinterpret_cast<uint64_t*>(&atzBuffer[35+lastos]);
+                //cout<<"lastos:"<<lastos<<" atzBuffer:"<<reinterpret_cast<uint16_t*>(atzBuffer)<<" atzBuffer:"<<reinterpret_cast<uint16_t*>(&atzBuffer[0+lastos])<<endl;
+                //pause();
+                streamOffsetList[j].atzInfos=&atzBuffer[35+lastos];
                 lastos=lastos+35+streamOffsetList[j].inflatedLength;
             }
         }
@@ -1442,8 +1444,12 @@ int main() {
                     strm.zalloc = Z_NULL;
                     strm.zfree = Z_NULL;
                     strm.opaque = Z_NULL;
-                    strm.avail_in= streamOffsetList[j].inflatedLength;
-                    strm.next_in=atzBuffer+streamOffsetList[j].atzInfos;
+                    strm.next_in=streamOffsetList[j].atzInfos;
+                    strm.avail_in=streamOffsetList[j].inflatedLength;
+                    //cout<<reinterpret_cast<uint16_t*>(atzBuffer)<<"; "<<streamOffsetList[j].atzInfos;
+                    //pause();
+                    //cout<<"; "<<reinterpret_cast<uint16_t*>(strm.next_in)<<endl;
+                    //pause();
                     //initialize the stream for compression and check for error
                     ret=deflateInit2(&strm, streamOffsetList[j].clevel, Z_DEFLATED, streamOffsetList[j].window, streamOffsetList[j].memlvl, Z_DEFAULT_STRATEGY);
                     if (ret != Z_OK)
