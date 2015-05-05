@@ -40,7 +40,7 @@ public:
         inflatedLength=1;
         abort();//the default constructor should not be used in this version
     }
-    streamOffset(int_fast64_t os, int ot, int_fast64_t sl, int_fast64_t il){
+    streamOffset(uint64_t os, int ot, uint64_t sl, uint64_t il){
         offset=os;
         offsetType=ot;
         streamLength=sl;
@@ -51,6 +51,13 @@ public:
         identBytes=0;
         firstDiffByte=-1;
         recomp=false;
+        atzInfos=0;
+    }
+    ~streamOffset(){
+        diffByteOffsets.clear();
+        diffByteOffsets.shrink_to_fit();
+        diffByteVal.clear();
+        diffByteVal.shrink_to_fit();
     }
     uint64_t offset;
     int offsetType;
@@ -66,6 +73,7 @@ public:
     //  transforms into 0, 1, 1, 1,...(repetitive, easy to compress)
     std::vector<unsigned char> diffByteVal;
     bool recomp;
+    uint64_t atzInfos;//relative to atz file start
 };
 
 int main() {
@@ -1347,6 +1355,12 @@ int main() {
     outfile.close();
 
     //PHASE 5: verify that we can reconstruct the original file, using only data from the ATZ file
+    infileSize=0;
+    atzlen=0;
+    lastos=0;
+    lastlen=0;
+    uint64_t origlen=0;
+    uint64_t nstrms=0;
 
     std::ifstream atzfile(filename_out, std::ios::in | std::ios::binary);
 	if (!atzfile.is_open()) {
@@ -1373,7 +1387,46 @@ int main() {
         pause();
         abort();
     }
+    atzlen=*reinterpret_cast<uint64_t*>(&atzBuffer[4]);
+    if (atzlen!=infileSize){
+        cout<<"atzlen mismatch"<<endl;
+        pause();
+        abort();
+    }
+    origlen=*reinterpret_cast<uint64_t*>(&atzBuffer[12]);
+    nstrms=*reinterpret_cast<uint64_t*>(&atzBuffer[20]);
+    cout<<"nstrms:"<<nstrms<<endl;
 
+    if (nstrms>0){
+        streamOffsetList.reserve(nstrms);
+        for (j=0;j<nstrms;j++){
+            cout<<"stream #"<<j<<endl;
+            streamOffsetList.push_back(streamOffset(*reinterpret_cast<uint64_t*>(&atzBuffer[28+lastos+lastlen]), -1, *reinterpret_cast<uint64_t*>(&atzBuffer[36+lastos+lastlen]), *reinterpret_cast<uint64_t*>(&atzBuffer[44+lastos+lastlen])));
+            streamOffsetList[j].clevel=atzBuffer[52+lastos+lastlen];
+            streamOffsetList[j].window=atzBuffer[53+lastos+lastlen];
+            streamOffsetList[j].memlvl=atzBuffer[54+lastos+lastlen];
+            cout<<"   offset:"<<streamOffsetList[j].offset<<endl;
+            cout<<"   memlevel:"<<+streamOffsetList[j].memlvl<<endl;
+            cout<<"   clevel:"<<+streamOffsetList[j].clevel<<endl;
+            cout<<"   window:"<<+streamOffsetList[j].window<<endl;
+            pause();
+            //partial match handling
+            uint64_t diffbytes=*reinterpret_cast<uint64_t*>(&atzBuffer[55+lastos+lastlen]);
+            if (diffbytes>0){
+                streamOffsetList[j].firstDiffByte=*reinterpret_cast<uint64_t*>(&atzBuffer[63+lastos+lastlen]);
+                streamOffsetList[j].diffByteOffsets.reserve(diffbytes);
+                streamOffsetList[j].diffByteVal.reserve(diffbytes);
+                for (i=0;i<diffbytes;i++){
+                    streamOffsetList[j].diffByteOffsets.push_back(*reinterpret_cast<uint64_t*>(&atzBuffer[71+8*i+lastos+lastlen]));
+                    streamOffsetList[j].diffByteVal.push_back(atzBuffer[71+diffbytes*8+i+lastos+lastlen]);
+                }
+                streamOffsetList[j].atzInfos=*reinterpret_cast<uint64_t*>(&atzBuffer[71+diffbytes*9+lastos+lastlen]);
+            } else{
+                streamOffsetList[j].firstDiffByte=-1;
+                streamOffsetList[j].atzInfos=*reinterpret_cast<uint64_t*>(&atzBuffer[63+lastos+lastlen]);
+            }
+        }
+    }
 
     pause();
     delete [] rBuffer;
