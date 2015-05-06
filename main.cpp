@@ -1430,6 +1430,10 @@ int main() {
                 lastos=lastos+35+streamOffsetList[j].inflatedLength;
             }
         }
+        cout<<"lastos:"<<lastos<<endl;
+        uint64_t residueos=lastos;
+        uint64_t gapsum=0;
+        pause();
         //do the reconstructing
         lastos=0;
         lastlen=0;
@@ -1496,16 +1500,74 @@ int main() {
                 }
                 recfile.write(reinterpret_cast<char*>(compBuffer), streamOffsetList[j].streamLength);
                 delete [] compBuffer;
-            }else{/*
+            }else{
                 cout<<"gap of "<<(streamOffsetList[j].offset-(lastos+lastlen))<<" bytes before stream #"<<j<<endl;
-                outfile.write(reinterpret_cast<char*>(rBuffer+lastos+lastlen), (streamOffsetList[j].offset-(lastos+lastlen)));
-                if (streamOffsetList[j].recomp==false){
-                    cout<<"copying stream #"<<j<<endl;
-                    outfile.write(reinterpret_cast<char*>(rBuffer+streamOffsetList[j].offset), streamOffsetList[j].streamLength);
-                }*/
+                recfile.write(reinterpret_cast<char*>(atzBuffer+residueos+gapsum), (streamOffsetList[j].offset-(lastos+lastlen)));
+                gapsum=gapsum+(streamOffsetList[j].offset-(lastos+lastlen));
+                cout<<"reconstructing stream #"<<j<<endl;
+                //a buffer needs to be created to hold the compressed data
+                unsigned char* compBuffer= new unsigned char[streamOffsetList[j].streamLength];
+                {
+                    //do compression
+                    cout<<"   compressing"<<endl;
+                    strm.zalloc = Z_NULL;
+                    strm.zfree = Z_NULL;
+                    strm.opaque = Z_NULL;
+                    strm.next_in=streamOffsetList[j].atzInfos;
+                    strm.avail_in=streamOffsetList[j].inflatedLength;
+                    //initialize the stream for compression and check for error
+                    ret=deflateInit2(&strm, streamOffsetList[j].clevel, Z_DEFLATED, streamOffsetList[j].window, streamOffsetList[j].memlvl, Z_DEFAULT_STRATEGY);
+                    if (ret != Z_OK)
+                    {
+                        cout<<"deflateInit() failed with exit code:"<<ret<<endl;
+                        pause();
+                        abort();
+                    }
+                    strm.next_out=compBuffer;
+                    strm.avail_out=streamOffsetList[j].streamLength;
+                    ret=deflate(&strm, Z_FINISH);//try to do the actual decompression in one pass
+                    //check the return value
+                    switch (ret)
+                    {
+                        case Z_STREAM_END://decompression was succesful
+                        {
+                            break;
+                        }
+                        default://shit hit the fan, should never happen normally
+                        {
+                            cout<<"deflate() failed with exit code:"<<ret<<endl;
+                            pause();
+                            abort();
+                        }
+                    }
+                    //deallocate the zlib stream, check for errors
+                    ret=deflateEnd(&strm);
+                    if (ret!=Z_OK)
+                    {
+                        cout<<"deflateEnd() failed with exit code:"<<ret<<endl;//should never happen normally
+                        pause();
+                        return ret;
+                    }
+                }
+                //do stream modification if needed
+                if (streamOffsetList[j].firstDiffByte>=0){
+                    cout<<"   modifying "<<streamOffsetList[j].diffByteOffsets.size()<<" bytes"<<endl;
+                    uint64_t db=streamOffsetList[j].diffByteOffsets.size();
+                    uint64_t sum=0;
+                    for(i=0;i<db;i++){
+                        compBuffer[streamOffsetList[j].firstDiffByte+streamOffsetList[j].diffByteOffsets[i]+sum]=streamOffsetList[j].diffByteVal[i];
+                        sum=sum+streamOffsetList[j].diffByteOffsets[i];
+                    }
+                }
+                recfile.write(reinterpret_cast<char*>(compBuffer), streamOffsetList[j].streamLength);
+                delete [] compBuffer;
             }
             lastos=streamOffsetList[j].offset;
             lastlen=streamOffsetList[j].streamLength;
+        }
+        if ((lastos+lastlen)<origlen){
+            cout<<"copying "<<(origlen-(lastos+lastlen))<<" bytes to the end of the file"<<endl;
+            recfile.write(reinterpret_cast<char*>(atzBuffer+residueos+gapsum), (origlen-(lastos+lastlen)));
         }
         recfile.close();
     }
