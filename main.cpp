@@ -1410,10 +1410,10 @@ int main() {
             cout<<"   memlevel:"<<+streamOffsetList[j].memlvl<<endl;
             cout<<"   clevel:"<<+streamOffsetList[j].clevel<<endl;
             cout<<"   window:"<<+streamOffsetList[j].window<<endl;
-            //pause();
             //partial match handling
             uint64_t diffbytes=*reinterpret_cast<uint64_t*>(&atzBuffer[27+lastos]);
-            if (diffbytes>0){
+            if (diffbytes>0){//if the stream is just a partial match
+                cout<<"   partial match"<<endl;
                 streamOffsetList[j].firstDiffByte=*reinterpret_cast<uint64_t*>(&atzBuffer[35+lastos]);
                 streamOffsetList[j].diffByteOffsets.reserve(diffbytes);
                 streamOffsetList[j].diffByteVal.reserve(diffbytes);
@@ -1423,10 +1423,9 @@ int main() {
                 }
                 streamOffsetList[j].atzInfos=&atzBuffer[43+diffbytes*9+lastos];
                 lastos=lastos+43+diffbytes*9+streamOffsetList[j].inflatedLength;
-            } else{
-                streamOffsetList[j].firstDiffByte=-1;
-                //cout<<"lastos:"<<lastos<<" atzBuffer:"<<reinterpret_cast<uint16_t*>(atzBuffer)<<" atzBuffer:"<<reinterpret_cast<uint16_t*>(&atzBuffer[0+lastos])<<endl;
-                //pause();
+            } else{//if the stream is a full match
+                cout<<"   full match"<<endl;
+                streamOffsetList[j].firstDiffByte=-1;//negative value signals full match
                 streamOffsetList[j].atzInfos=&atzBuffer[35+lastos];
                 lastos=lastos+35+streamOffsetList[j].inflatedLength;
             }
@@ -1435,21 +1434,22 @@ int main() {
         lastos=0;
         lastlen=0;
         std::ofstream recfile(reconfile, std::ios::out | std::ios::binary | std::ios::trunc);
+        //write the gap before the stream(if the is one), then do the compression using the parameters from the ATZ file
+        //then modify the compressed data according to the ATZ file(if necessary)
         for(j=0;j<streamOffsetList.size();j++){
             if ((lastos+lastlen)==streamOffsetList[j].offset){//no gap before the stream
                 cout<<"no gap before stream #"<<j<<endl;
                 cout<<"reconstructing stream #"<<j<<endl;
+                //a buffer needs to be created to hold the compressed data
+                unsigned char* compBuffer= new unsigned char[streamOffsetList[j].streamLength];
                 {
                     //do compression
+                    cout<<"   compressing"<<endl;
                     strm.zalloc = Z_NULL;
                     strm.zfree = Z_NULL;
                     strm.opaque = Z_NULL;
                     strm.next_in=streamOffsetList[j].atzInfos;
                     strm.avail_in=streamOffsetList[j].inflatedLength;
-                    //cout<<reinterpret_cast<uint16_t*>(atzBuffer)<<"; "<<streamOffsetList[j].atzInfos;
-                    //pause();
-                    //cout<<"; "<<reinterpret_cast<uint16_t*>(strm.next_in)<<endl;
-                    //pause();
                     //initialize the stream for compression and check for error
                     ret=deflateInit2(&strm, streamOffsetList[j].clevel, Z_DEFLATED, streamOffsetList[j].window, streamOffsetList[j].memlvl, Z_DEFAULT_STRATEGY);
                     if (ret != Z_OK)
@@ -1458,8 +1458,6 @@ int main() {
                         pause();
                         abort();
                     }
-                    //a buffer needs to be created to hold the resulting compressed data
-                    unsigned char* compBuffer= new unsigned char[streamOffsetList[j].streamLength];
                     strm.next_out=compBuffer;
                     strm.avail_out=streamOffsetList[j].streamLength;
                     ret=deflate(&strm, Z_FINISH);//try to do the actual decompression in one pass
@@ -1485,9 +1483,19 @@ int main() {
                         pause();
                         return ret;
                     }
-                    recfile.write(reinterpret_cast<char*>(compBuffer), streamOffsetList[j].streamLength);
-                    delete [] compBuffer;
                 }
+                //do stream modification if needed
+                if (streamOffsetList[j].firstDiffByte>=0){
+                    cout<<"   modifying "<<streamOffsetList[j].diffByteOffsets.size()<<" bytes"<<endl;
+                    uint64_t db=streamOffsetList[j].diffByteOffsets.size();
+                    uint64_t sum=0;
+                    for(i=0;i<db;i++){
+                        compBuffer[streamOffsetList[j].firstDiffByte+streamOffsetList[j].diffByteOffsets[i]+sum]=streamOffsetList[j].diffByteVal[i];
+                        sum=sum+streamOffsetList[j].diffByteOffsets[i];
+                    }
+                }
+                recfile.write(reinterpret_cast<char*>(compBuffer), streamOffsetList[j].streamLength);
+                delete [] compBuffer;
             }else{/*
                 cout<<"gap of "<<(streamOffsetList[j].offset-(lastos+lastlen))<<" bytes before stream #"<<j<<endl;
                 outfile.write(reinterpret_cast<char*>(rBuffer+lastos+lastlen), (streamOffsetList[j].offset-(lastos+lastlen)));
