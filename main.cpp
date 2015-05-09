@@ -708,7 +708,7 @@ int main() {
     int sizediffTresh=128;//streams are only compared when the size difference is <= sizediffTresh
     //DO NOT turn off slowmode, the alternative code (optimized mode) does not work at all
     bool slowmode=true;//slowmode bruteforces the zlib parameters, optimized mode only tries probable parameters based on the 2-byte header
-    int_fast64_t concentrate=-1;//only try to recompress the stream# givel here, -1 disables this and runs on all streams
+    int_fast64_t concentrate=-252;//only try to recompress the stream# givel here, -1 disables this and runs on all streams
 
     numGoodOffsets=streamOffsetList.size();
     cout<<endl;
@@ -747,12 +747,13 @@ int main() {
             {
                 #ifdef debug
                 cout<<endl;
-                cout<<"stream #"<<j<<" ready for recompression trials"<<endl;
+                cout<<"stream #"<<j<<"("<<streamOffsetList[j].offset<<")"<<" ready for recompression trials"<<endl;
                 #endif // debug
                 if (slowmode){
                     #ifdef debug
                     cout<<"   entering slow mode"<<endl;
                     cout<<"   stream type: "<<streamOffsetList[j].offsetType<<endl;
+                    //pause();
                     #endif // debug
                     do{
                         memlevel=9;
@@ -1211,7 +1212,7 @@ int main() {
         cout<<"   best match:"<<streamOffsetList[j].identBytes<<" out of "<<streamOffsetList[j].streamLength<<endl;
         cout<<"   diffBytes:"<<streamOffsetList[j].diffByteOffsets.size()<<endl;
         cout<<"   diffVals:"<<streamOffsetList[j].diffByteVal.size()<<endl;
-        if (streamOffsetList[j].diffByteOffsets.size()<=recompTresh){
+        if (((streamOffsetList[j].streamLength-streamOffsetList[j].identBytes)<=recompTresh)&&(streamOffsetList[j].identBytes>0)){
             recomp++;
             streamOffsetList[j].recomp=true;
         }
@@ -1445,7 +1446,7 @@ int main() {
                 cout<<"no gap before stream #"<<j<<endl;
                 cout<<"reconstructing stream #"<<j<<endl;
                 //a buffer needs to be created to hold the compressed data
-                unsigned char* compBuffer= new unsigned char[streamOffsetList[j].streamLength];
+                unsigned char* compBuffer= new unsigned char[streamOffsetList[j].streamLength+32768];
                 {
                     //do compression
                     cout<<"   compressing"<<endl;
@@ -1463,7 +1464,7 @@ int main() {
                         abort();
                     }
                     strm.next_out=compBuffer;
-                    strm.avail_out=streamOffsetList[j].streamLength;
+                    strm.avail_out=streamOffsetList[j].streamLength+32768;
                     ret=deflate(&strm, Z_FINISH);//try to do the actual decompression in one pass
                     //check the return value
                     switch (ret)
@@ -1506,7 +1507,7 @@ int main() {
                 gapsum=gapsum+(streamOffsetList[j].offset-(lastos+lastlen));
                 cout<<"reconstructing stream #"<<j<<endl;
                 //a buffer needs to be created to hold the compressed data
-                unsigned char* compBuffer= new unsigned char[streamOffsetList[j].streamLength];
+                unsigned char* compBuffer= new unsigned char[streamOffsetList[j].streamLength+32768];
                 {
                     //do compression
                     cout<<"   compressing"<<endl;
@@ -1524,7 +1525,7 @@ int main() {
                         abort();
                     }
                     strm.next_out=compBuffer;
-                    strm.avail_out=streamOffsetList[j].streamLength;
+                    strm.avail_out=streamOffsetList[j].streamLength+32768;
                     ret=deflate(&strm, Z_FINISH);//try to do the actual decompression in one pass
                     //check the return value
                     switch (ret)
