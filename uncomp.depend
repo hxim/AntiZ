@@ -1,5 +1,5 @@
 # depslib dependency file v1.0
-1430859914 source:c:\users\szuperhab\desktop\prog\uncomp\main.cpp
+1431447200 source:c:\users\szuperhab\desktop\prog\uncomp\main.cpp
 	<iostream>
 	<fstream>
 	<vector>
@@ -7,7 +7,7 @@
 	<sys/stat.h>
 	<zlib.h>
 
-1421679462 c:\users\szuperhab\desktop\prog\zlib test\zlib128\zlib.h
+1431205045 c:\users\szuperhab\desktop\prog\zlib test\zlib128\zlib.h
 	"zconf.h"
 
 1421679462 c:\users\szuperhab\desktop\prog\zlib test\zlib128\zconf.h

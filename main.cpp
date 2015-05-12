@@ -633,9 +633,16 @@ int main() {
                         }
                     }
                     #endif // debug
-                    lastGoodOffset=offsetList[i].offset;
-                    lastStreamLength=strm.total_in;
-                    streamOffsetList.push_back(streamOffset(offsetList[i].offset, offsetList[i].offsetType, strm.total_in, strm.total_out));
+                    if (strm.total_in>=16){
+                        lastGoodOffset=offsetList[i].offset;
+                        lastStreamLength=strm.total_in;
+                        streamOffsetList.push_back(streamOffset(offsetList[i].offset, offsetList[i].offsetType, strm.total_in, strm.total_out));
+                    } else{
+                        #ifdef debug
+                        dataErrors++;
+                        cout<<"   stream is under 16 bytes, ignoring"<<endl;
+                        #endif // debug
+                    }
                     break;
                 }
                 case Z_BUF_ERROR:
@@ -708,7 +715,7 @@ int main() {
     int sizediffTresh=128;//streams are only compared when the size difference is <= sizediffTresh
     //DO NOT turn off slowmode, the alternative code (optimized mode) does not work at all
     bool slowmode=true;//slowmode bruteforces the zlib parameters, optimized mode only tries probable parameters based on the 2-byte header
-    int_fast64_t concentrate=-252;//only try to recompress the stream# givel here, -1 disables this and runs on all streams
+    int_fast64_t concentrate=-404;//only try to recompress the stream# givel here, -1 disables this and runs on all streams
 
     numGoodOffsets=streamOffsetList.size();
     cout<<endl;
@@ -748,12 +755,17 @@ int main() {
                 #ifdef debug
                 cout<<endl;
                 cout<<"stream #"<<j<<"("<<streamOffsetList[j].offset<<")"<<" ready for recompression trials"<<endl;
+                /*if(streamOffsetList[j].offset!=9887540){//debug code!!!! DISABLE IT UNLESS NEEDED
+                    window=10;
+                    clevel=1;
+                    memlevel=1;
+                }*/
                 #endif // debug
                 if (slowmode){
                     #ifdef debug
-                    cout<<"   entering slow mode"<<endl;
+                    /*cout<<"   entering slow mode"<<endl;
                     cout<<"   stream type: "<<streamOffsetList[j].offsetType<<endl;
-                    //pause();
+                    pause();*/
                     #endif // debug
                     do{
                         memlevel=9;
@@ -802,7 +814,7 @@ int main() {
                                 //test if the recompressed stream matches the input data
                                 if (strm1.total_out!=streamOffsetList[j].streamLength){
                                     identicalBytes=0;
-                                    //cout<<"   size difference: "<<(strm1.total_out-streamOffsetList[j].streamLength)<<endl;
+                                    //cout<<"   size difference: "<<(strm1.total_out-static_cast<int64_t>(streamOffsetList[j].streamLength))<<endl;
                                     if (abs((strm1.total_out-streamOffsetList[j].streamLength))>sizediffTresh){
                                         cout<<"   size difference is greater than "<<sizediffTresh<<" bytes, not comparing"<<endl;
                                     } else {
@@ -847,9 +859,13 @@ int main() {
                                                     }
                                                 }
                                                 for (i=0; i<(streamOffsetList[j].streamLength-strm1.total_out); i++){
-                                                    streamOffsetList[j].diffByteOffsets.push_back(1);
+                                                    if ((i==0)&&((last_i+1)<strm1.total_out)){
+                                                        streamOffsetList[j].diffByteOffsets.push_back(strm1.total_out-last_i);
+                                                    } else{
+                                                        streamOffsetList[j].diffByteOffsets.push_back(1);
+                                                    }
                                                     streamOffsetList[j].diffByteVal.push_back(rBuffer[(i+strm1.total_out+streamOffsetList[j].offset)]);
-                                                    cout<<"   byte at the end added"<<endl;
+                                                    cout<<"   byte at the end added :"<<+rBuffer[(i+strm1.total_out+streamOffsetList[j].offset)]<<endl;
                                                 }
                                             } else {//the recompressed stream is longer than the original
                                                 for (i=0; i<streamOffsetList[j].streamLength;i++){
@@ -1198,9 +1214,10 @@ int main() {
         numGoodOffsets=streamOffsetList.size();
     }
     cout<<endl;
-    cout<<"recompressed streams:"<<numFullmatch<<" out of "<<numGoodOffsets<<endl;
+    //cout<<"recompressed streams:"<<numFullmatch<<" out of "<<numGoodOffsets<<endl;
     cout<<"streamOffsetList.size():"<<streamOffsetList.size()<<endl;
     cout<<endl;
+    pause();
     cout<<"Stream info"<<endl;
     for (j=0; j<streamOffsetList.size(); j++){
         cout<<"-------------------------"<<endl;
