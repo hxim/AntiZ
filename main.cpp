@@ -5,7 +5,7 @@
 #include <sys/stat.h>
 #include <zlib.h>
 
-#define filename "test.bin"
+#define default_infile "test.bin"
 #define filename_out "atztest.atz"
 #define reconfile "recon.bin"
 
@@ -77,34 +77,28 @@ public:
     unsigned char* atzInfos;
 };
 
-int main() {
+int main(int argc, char* argv[]) {
 	using std::cout;
 	using std::endl;
 	using std::cin;
 	using std::vector;
 	//PHASE 0
 	//opening file
-	/*
-        objects created:
-            infile: input file stream
-            statresults: the results of file statistics
-            rBuffer: to hold the input file in memory
-        objects destroyed:
-            infile: destroyed with infile.close()
-        objects created, but not provided or destroyed:
-            statresults
-        variables declared:
-            infileSize: to hold the size of input file for later use without needing to use the statresults struct
-        debug variables declared:
-            none
-        provides:
-            infileSize
-            rBuffer
-        requires:
-            none
-	*/
+	/*for (int i = 0; i < argc; ++i) {
+        std::cout << argv[i] << std::endl;
+    }*/
 	uint64_t infileSize;
-	std::ifstream infile(filename, std::ios::in | std::ios::binary);
+	char* infile_name;
+	if (argc>=2){
+        cout<<"Input file: "<<argv[1]<<endl;
+        infile_name=argv[1];
+	}else{
+        cout<<"no input specified, trying to open test.bin"<<endl;
+        infile_name= new char[9];
+        infile_name=default_infile;
+	}
+
+	std::ifstream infile(infile_name, std::ios::in | std::ios::binary);
 	if (!infile.is_open()) {
        cout << "error: open file for input failed!" << endl;
        pause();
@@ -112,7 +106,7 @@ int main() {
 	}
 	//getting the size of the file
 	struct stat statresults;
-    if (stat(filename, &statresults) == 0){
+    if (stat(infile_name, &statresults) == 0){
     	cout<<"File size:"<<statresults.st_size<<endl;
     }
     else{
@@ -1372,6 +1366,7 @@ int main() {
     streamOffsetList.clear();
     streamOffsetList.shrink_to_fit();
     outfile.close();
+    delete [] rBuffer;
 
     //PHASE 5: verify that we can reconstruct the original file, using only data from the ATZ file
     infileSize=0;
@@ -1592,6 +1587,6 @@ int main() {
 
 
     pause();
-    delete [] rBuffer;
+    delete [] atzBuffer;
 	return 0;
 }
