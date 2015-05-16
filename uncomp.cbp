@@ -17,7 +17,7 @@
 				<Option object_output="obj/Debug/" />
 				<Option type="1" />
 				<Option compiler="gcc" />
-				<Option parameters="test.bin" />
+				<Option parameters="pdf.bin" />
 				<Compiler>
 					<Add option="-march=core2" />
 					<Add option="-pg" />
@@ -34,11 +34,14 @@
 				<Option object_output="obj/Release/" />
 				<Option type="1" />
 				<Option compiler="gcc" />
+				<Option parameters="pdf.bin" />
 				<Compiler>
 					<Add option="-march=core2" />
-					<Add option="-O2" />
-					<Add option="-g" />
+					<Add option="-O3" />
 				</Compiler>
+				<Linker>
+					<Add option="-s" />
+				</Linker>
 			</Target>
 		</Build>
 		<Compiler>
