@@ -1463,6 +1463,7 @@ int main(int argc, char* argv[]) {
     streamOffsetList.clear();
     streamOffsetList.shrink_to_fit();
     outfile.close();
+    delete [] rBuffer;
 
     PHASE5:
     //PHASE 5: verify that we can reconstruct the original file, using only data from the ATZ file
@@ -1710,12 +1711,18 @@ int main(int argc, char* argv[]) {
             recfile.write(reinterpret_cast<char*>(atzBuffer+residueos+gapsum), (origlen-(lastos+lastlen)));
         }
         recfile.close();
+    }else{//if there are no recompressed streams
+        #ifdef debug
+        cout<<"no recompressed streams in the ATZ file, copying "<<origlen<<" bytes"<<endl;
+        #endif // debug
+        std::ofstream recfile(reconfile_name, std::ios::out | std::ios::binary | std::ios::trunc);
+        recfile.write(reinterpret_cast<char*>(atzBuffer+28), origlen);
+        recfile.close();
     }
 
     #ifdef debug
     pause();
     #endif // debug
-    delete [] rBuffer;
     delete [] atzBuffer;
     /*delete [] infile_name;
     delete [] atzfile_name;
