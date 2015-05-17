@@ -9,10 +9,7 @@
 class streamOffset{
 public:
     streamOffset(){
-        offset=0;
-        streamLength=1;
-        inflatedLength=1;
-        abort();//the default constructor should not be used in this version
+        offset=-1;
     }
     streamOffset(uint64_t os, uint64_t sl, uint64_t il){
         offset=os;
@@ -48,6 +45,41 @@ public:
     unsigned char* atzInfos;
 };
 
+
+bool CheckOffset(int_fast64_t i, unsigned char *next_in, uint64_t avail_in, streamOffset &s){
+	z_stream strm;
+    strm.zalloc=Z_NULL;
+    strm.zfree=Z_NULL;
+    strm.opaque=Z_NULL;
+    strm.avail_in=avail_in;
+    strm.next_in=next_in;
+    
+    //initialize the stream for decompression and check for error
+    if (inflateInit(&strm)!=Z_OK) return false;
+    
+    bool success=false;
+    int_fast64_t memScale=1;
+    while (true){
+        //a buffer needs to be created to hold the resulting decompressed data
+        //this is a big problem since the zlib header does not contain the length of the decompressed data
+        //the best we can do is to take a guess, and see if it was big enough, if not then scale it up
+        unsigned char* decompBuffer= new unsigned char[(memScale*5*avail_in)]; //just a wild guess, corresponds to a compression ratio of 20%
+        strm.next_out=decompBuffer;
+        strm.avail_out=memScale*5*avail_in;
+        int ret=inflate(&strm, Z_FINISH);//try to do the actual decompression in one pass
+        if (ret==Z_STREAM_END && strm.total_in>=16)//decompression was succesful
+        {
+            s=streamOffset(i, strm.total_in, strm.total_out);
+            success=true;
+        }
+        if (inflateEnd(&strm)!=Z_OK) success=false;
+        delete [] decompBuffer;
+        if (ret!=Z_BUF_ERROR) break;
+        memScale++;//increase buffer size for the next iteration
+    };
+    return success;
+}
+
 int main(int argc, char* argv[]) {
 	using std::cout;
 	using std::endl;
@@ -73,16 +105,11 @@ int main(int argc, char* argv[]) {
     bool slowmode=true;//slowmode bruteforces the zlib parameters, optimized mode only tries probable parameters based on the 2-byte header
     int_fast64_t concentrate=-404;//only try to recompress the stream# givel here, -1 disables this and runs on all streams
 
-    int_fast64_t lastGoodOffset=0;
-    int_fast64_t lastStreamLength=0;
-    int_fast64_t memScale=1;
 	int_fast64_t numOffsets=0;
 	int ret=-9;
 	vector<streamOffset> streamOffsetList;
 	z_stream strm;
 
-	//offsetList stores memory offsets where potential headers can be found, and the type of the offset
-	vector<int_fast64_t> offsetList;
 	int_fast64_t i;
 	unsigned char* rBuffer;
 	std::ifstream infile;
@@ -139,12 +166,9 @@ int main(int argc, char* argv[]) {
     infile.read(reinterpret_cast<char*>(rBuffer), infileSize);
     infile.close();
 
-    //PHASE 1
-	//search the file for zlib headers, count them and create an offset list
+    //PHASE 1+2
+	//search the file for zlib headers and try to decompress
 
-	//try to guess the number of potential zlib headers in the file from the file size
-	//this value is purely empirical, may need tweaking
-	offsetList.reserve(static_cast<int_fast64_t>(infileSize/1912));
 	cout<<endl;
 	for(i=0;i<infileSize-1;i++){
         //search for 7801, 785E, 789C, 78DA, 68DE, 6881, 6843, 6805, 58C3, 5885, 5847, 5809,
@@ -159,88 +183,16 @@ int main(int argc, char* argv[]) {
                 cout<<"Found zlib header("<<std::hex<<std::setfill('0')<<std::uppercase<<std::setw(2)<<(int)rBuffer[i]
                 <<" "<<std::setw(2)<<(int)rBuffer[i+1]<<std::dec<<") with "<<(1<<(hbits-2))<<"K window at offset: "<<i<<endl;
                 #endif // debug
-                offsetList.push_back(i);
-            }
-        }
-    }
-    #ifdef debug
-    cout<<"Number of collected offsets:"<<offsetList.size()<<endl; 
-    #endif // debug    
-    
-
-    //PHASE 2
-    //start trying to decompress at the collected offsets
-    numOffsets=offsetList.size();
-    for (i=0; i<numOffsets; i++)
-    {
-        if ((lastGoodOffset+lastStreamLength)<=offsetList[i])
-        {
-            /*
-            local variables and objects:
-                decompBuffer: used to hold the data resulting from the decompression
-            */
-            //create a new Zlib stream to do decompression
-            strm.zalloc = Z_NULL;
-            strm.zfree = Z_NULL;
-            strm.opaque = Z_NULL;
-            //since we have no idea about the length of the zlib stream, take the worst case, i.e. everything after the header belongs to the stream
-            strm.avail_in= infileSize-offsetList[i];
-            strm.next_in=rBuffer+offsetList[i];//this is effectively adding an integer to a pointer, resulting in a pointer
-            //initialize the stream for decompression and check for error
-            ret=inflateInit(&strm);
-            if (ret != Z_OK)
-            {
-                cout<<"inflateInit() failed with exit code:"<<ret<<endl;
-                abort();
-            }
-            //a buffer needs to be created to hold the resulting decompressed data
-            //this is a big problem since the zlib header does not contain the length of the decompressed data
-            //the best we can do is to take a guess, and see if it was big enough, if not then scale it up
-            unsigned char* decompBuffer= new unsigned char[(memScale*5*(infileSize-offsetList[i]))]; //just a wild guess, corresponds to a compression ratio of 20%
-            strm.next_out=decompBuffer;
-            strm.avail_out=memScale*5*(infileSize-offsetList[i]);
-            ret=inflate(&strm, Z_FINISH);//try to do the actual decompression in one pass
-            //check the return value
-            switch (ret)
-            {
-                case Z_DATA_ERROR://the compressed data was invalid, most likely it was not a good offset
-                {
-                    break;
-                }
-                case Z_STREAM_END://decompression was succesful
-                {
-                    if (strm.total_in>=16){
-                        lastGoodOffset=offsetList[i];
-                        lastStreamLength=strm.total_in;
-                        streamOffsetList.push_back(streamOffset(offsetList[i], strm.total_in, strm.total_out));
-                    } 
-                    break;
-                }
-                case Z_BUF_ERROR:
-                {
-                    memScale++;//increase buffer size for the next iteration
-                    i--;//make sure that we are retrying at this offset until the buffer is finally large enough
-                    break;
-                }
-                default://shit hit the fan, should never happen normally
-                {
-                    cout<<"inflate() failed with exit code:"<<ret<<endl;
-                    abort();
+                streamOffset s;
+                if (CheckOffset(i, &rBuffer[i], infileSize-i, s)){
+                    streamOffsetList.push_back(s);
+                    i+=s.streamLength-1;
                 }
             }
-            //deallocate the zlib stream, check for errors and deallocate the decompression buffer
-            ret=inflateEnd(&strm);
-            if (ret!=Z_OK)
-            {
-                cout<<"inflateEnd() failed with exit code:"<<ret<<endl;//should never happen normally
-                return ret;
-            }
-            delete [] decompBuffer;
         }
     }
     cout<<"Good offsets: "<<streamOffsetList.size()<<endl;
-    offsetList.clear();
-    offsetList.shrink_to_fit();
+
     //PHASE 3
     //start trying to find the parameters to use for recompression
 
