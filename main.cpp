@@ -47,7 +47,7 @@ public:
 
 
 bool CheckOffset(int_fast64_t i, unsigned char *next_in, uint64_t avail_in, streamOffset &s){
-	z_stream strm;
+    z_stream strm;
     strm.zalloc=Z_NULL;
     strm.zfree=Z_NULL;
     strm.opaque=Z_NULL;
@@ -81,11 +81,11 @@ bool CheckOffset(int_fast64_t i, unsigned char *next_in, uint64_t avail_in, stre
 }
 
 int main(int argc, char* argv[]) {
-	using std::cout;
-	using std::endl;
-	using std::cin;
-	using std::vector;
-	uint64_t lastos=0;
+    using std::cout;
+    using std::endl;
+    using std::cin;
+    using std::vector;
+    uint64_t lastos=0;
     uint64_t lastlen=0;
     uint64_t atzlen=0;//placeholder for the length of the atz file
     std::ofstream outfile;
@@ -105,22 +105,22 @@ int main(int argc, char* argv[]) {
     bool slowmode=true;//slowmode bruteforces the zlib parameters, optimized mode only tries probable parameters based on the 2-byte header
     int_fast64_t concentrate=-404;//only try to recompress the stream# givel here, -1 disables this and runs on all streams
 
-	int_fast64_t numOffsets=0;
-	int ret=-9;
-	vector<streamOffset> streamOffsetList;
-	z_stream strm;
+    int_fast64_t numOffsets=0;
+    int ret=-9;
+    vector<streamOffset> streamOffsetList;
+    z_stream strm;
 
-	int_fast64_t i;
-	unsigned char* rBuffer;
-	std::ifstream infile;
+    int_fast64_t i;
+    unsigned char* rBuffer;
+    std::ifstream infile;
 
-	//PHASE 0
-	//opening file
-	uint64_t infileSize;
-	char* infile_name;
-	char* reconfile_name;
-	char* atzfile_name;
-	if (argc>=2){// if we get at least one string use it as input file name
+    //PHASE 0
+    //opening file
+    uint64_t infileSize;
+    char* infile_name;
+    char* reconfile_name;
+    char* atzfile_name;
+    if (argc>=2){// if we get at least one string use it as input file name
         cout<<"Input file: "<<argv[1]<<endl;
         if (argc>=3 && strcmp(argv[2], "-r")==0){//if we get at least two strings use the second as a parameter
             //if we get -r, treat the file as an ATZ file and skip to reconstruction
@@ -146,20 +146,20 @@ int main(int argc, char* argv[]) {
             reconfile_name=strcat(reconfile_name, ".rec");
             cout<<"overwriting "<<atzfile_name<<" and "<<reconfile_name<<" if present"<<endl;
         }
-	}else{//if we get nothing from the CLI
+    }else{//if we get nothing from the CLI
         cout<<"error: no input specified"<<endl;
         abort();
-	}
+    }
 
-	infile.open(infile_name, std::ios::in | std::ios::binary);
-	if (!infile.is_open()) {
+    infile.open(infile_name, std::ios::in | std::ios::binary);
+    if (!infile.is_open()) {
        cout << "error: open file for input failed!" << endl;
- 	   abort();
-	}
-	//getting the size of the file
+        abort();
+    }
+    //getting the size of the file
     infile.seekg (0, infile.end);
     infileSize=infile.tellg(); 
-    infile.seekg (0, infile.beg);	
+    infile.seekg (0, infile.beg);    
     
     //setting up read buffer and reading the entire file into the buffer
     rBuffer = new unsigned char[infileSize];
@@ -167,14 +167,14 @@ int main(int argc, char* argv[]) {
     infile.close();
 
     //PHASE 1+2
-	//search the file for zlib headers and try to decompress
+    //search the file for zlib headers and try to decompress
 
-	cout<<endl;
-	for(i=0;i<infileSize-1;i++){
+    cout<<endl;
+    for(i=0;i<infileSize-1;i++){
         //search for 7801, 785E, 789C, 78DA, 68DE, 6881, 6843, 6805, 58C3, 5885, 5847, 5809,
-        //           48C7, 4889, 484B, 480D, 38CB, 388D, 384F, 3811, 28CF, 2891, 2853, 2815	
-	    int hbits = rBuffer[i]>>4;
-	    int lbits = rBuffer[i]&15;
+        //           48C7, 4889, 484B, 480D, 38CB, 388D, 384F, 3811, 28CF, 2891, 2853, 2815    
+        int hbits = rBuffer[i]>>4;
+        int lbits = rBuffer[i]&15;
         if ((lbits==8)&&(hbits>=2)&&(hbits<=7)){
             int v = rBuffer[i+1];
             v=(v&(255-32-1))+((v&32)?1:0)+(v&1)*32;//swap 1st and 5th bit
@@ -465,10 +465,10 @@ int main(int argc, char* argv[]) {
     //PHASE 4
     //take the information created in phase 3 and use it to create an ATZ file(see ATZ file format spec.)
     outfile.open(atzfile_name, std::ios::out | std::ios::binary | std::ios::trunc);
-	if (!outfile.is_open()) {
+    if (!outfile.is_open()) {
        cout << "error: open file for output failed!" << endl;
- 	   abort();
-	}
+        abort();
+    }
     {//write file header and version
         unsigned char* atz1=new unsigned char[4];
         atz1[0]=65;
@@ -591,14 +591,14 @@ int main(int argc, char* argv[]) {
     uint64_t nstrms=0;
 
     std::ifstream atzfile(atzfile_name, std::ios::in | std::ios::binary);
-	if (!atzfile.is_open()) {
+    if (!atzfile.is_open()) {
        cout << "error: open ATZ file for input failed!" << endl;
- 	   abort();
-	}
-	cout<<"reconstructing from "<<atzfile_name<<endl;
+        abort();
+    }
+    cout<<"reconstructing from "<<atzfile_name<<endl;
     atzfile.seekg (0, atzfile.end);
     infileSize=atzfile.tellg();
-    atzfile.seekg (0, atzfile.beg);	
+    atzfile.seekg (0, atzfile.beg);    
     cout<<"File size:"<<infileSize<<endl;
     //setting up read buffer and reading the entire file into the buffer
     unsigned char* atzBuffer = new unsigned char[infileSize];
@@ -772,5 +772,5 @@ int main(int argc, char* argv[]) {
     }
 
     delete [] atzBuffer;
-	return 0;
+    return 0;
 }
