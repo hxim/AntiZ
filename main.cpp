@@ -53,10 +53,10 @@ bool CheckOffset(int_fast64_t i, unsigned char *next_in, uint64_t avail_in, stre
     strm.opaque=Z_NULL;
     strm.avail_in=avail_in;
     strm.next_in=next_in;
-    
+
     //initialize the stream for decompression and check for error
     if (inflateInit(&strm)!=Z_OK) return false;
-    
+
     bool success=false;
     int_fast64_t memScale=1;
     while (true){
@@ -158,9 +158,9 @@ int main(int argc, char* argv[]) {
     }
     //getting the size of the file
     infile.seekg (0, infile.end);
-    infileSize=infile.tellg(); 
-    infile.seekg (0, infile.beg);    
-    
+    infileSize=infile.tellg();
+    infile.seekg (0, infile.beg);
+
     //setting up read buffer and reading the entire file into the buffer
     rBuffer = new unsigned char[infileSize];
     infile.read(reinterpret_cast<char*>(rBuffer), infileSize);
@@ -172,7 +172,7 @@ int main(int argc, char* argv[]) {
     cout<<endl;
     for(i=0;i<infileSize-1;i++){
         //search for 7801, 785E, 789C, 78DA, 68DE, 6881, 6843, 6805, 58C3, 5885, 5847, 5809,
-        //           48C7, 4889, 484B, 480D, 38CB, 388D, 384F, 3811, 28CF, 2891, 2853, 2815    
+        //           48C7, 4889, 484B, 480D, 38CB, 388D, 384F, 3811, 28CF, 2891, 2853, 2815
         int hbits = rBuffer[i]>>4;
         int lbits = rBuffer[i]&15;
         if ((lbits==8)&&(hbits>=2)&&(hbits<=7)){
@@ -598,7 +598,7 @@ int main(int argc, char* argv[]) {
     cout<<"reconstructing from "<<atzfile_name<<endl;
     atzfile.seekg (0, atzfile.end);
     infileSize=atzfile.tellg();
-    atzfile.seekg (0, atzfile.beg);    
+    atzfile.seekg (0, atzfile.beg);
     cout<<"File size:"<<infileSize<<endl;
     //setting up read buffer and reading the entire file into the buffer
     unsigned char* atzBuffer = new unsigned char[infileSize];
