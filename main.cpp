@@ -136,6 +136,7 @@ bool preprocess(const char *infile_name, const char *atzfile_name) {
     //PHASE 3
     //start trying to find the parameters to use for recompression
     const int recompTresh=128;//recompressed if the best match differs from the original in <= recompTresh bytes
+    const int sizediffTresh=128;//compared when the size difference is <= sizediffTresh
     int ret=-9;
     z_stream strm, strm1;
     const int_fast64_t numGoodOffsets = streamOffsetList.size();
