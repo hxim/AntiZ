@@ -761,7 +761,10 @@ bool reconstruct(const char *atzfile_name, const char *reconfile_name) {
 int main(int argc, char* argv[]) {
     // Parse command line parameters
     if (argc < 2) {
-        std::cout << "error: no input specified" << std::endl;
+        std::cout << "Error: no input specified" << std::endl;
+        std::cout << "Usage: antiz.exe <input file> <switches>" << std::endl;
+        std::cout << "Valid switches:" << std::endl;
+        std::cout << "-r : assume the input file is an ATZ file, skip to reconstruction" << std::endl;
         return EXIT_FAILURE;
     } else {
         if (argc >= 3 && strcmp(argv[2], "-r") == 0) {
