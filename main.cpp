@@ -17,7 +17,7 @@ public:
         inflatedLength = il;
         clevel = 9;
         window = 15;
-        memlvl = 9;
+        memlevel = 9;
         identBytes = 0;
         firstDiffByte = -1;
         recomp = false;
@@ -35,7 +35,7 @@ public:
     uint64_t inflatedLength;
     uint8_t clevel;
     uint8_t window;
-    uint8_t memlvl;
+    uint8_t memlevel;
     int_fast64_t identBytes;
     int_fast64_t firstDiffByte; // The offset of the first byte that does not match, relative to stream start
     std::vector<int_fast64_t> diffByteOffsets; // Offsets of bytes that differ, this is an incremental offset list
@@ -118,7 +118,7 @@ void searchBuffer(unsigned char *buffer, uint_fast64_t bufferSize, std::vector<S
 
 bool testParameters(unsigned char *buffer, unsigned char *decompBuffer, StreamInfo &streamInfo, int window, int memlevel, int clevel)  {
     const int recompTresh = 128; // Recompressed if differs from the original in <= recompTresh bytes
-    const int diffTresh = 128; // Compared when the size difference is <= diffTresh
+    const int sizediffTresh = 128; // Compared when the size difference is <= diffTresh
     const int testBlock = 1024; // Data are compressed to testBlock bytes first before full compression
 
     // Use default settings except window, clevel and memlevel
@@ -159,153 +159,54 @@ bool testParameters(unsigned char *buffer, unsigned char *decompBuffer, StreamIn
     }
     
     bool fullmatch = false;
-    int_fast64_t i;
-    //test if the recompressed stream matches the input data
-    if (skip || strm1.total_out!=streamInfo.streamLength){
-        int_fast64_t identicalBytes=0;
-        //std::cout<<"   size difference: "<<(strm1.total_out-static_cast<int64_t>(streamInfo.streamLength))<<std::endl;
-        if (skip || abs((strm1.total_out-streamInfo.streamLength))>diffTresh){
-        } else {
-            if (strm1.total_out<streamInfo.streamLength){
-                for (i=0; i<strm1.total_out;i++){
-                    if (recompBuffer[i]==buffer[(i+streamInfo.offset)]){
-                        identicalBytes++;
-                    }
-                }
-            } else {
-                for (i=0; i<streamInfo.streamLength;i++){
-                    if (recompBuffer[i]==buffer[(i+streamInfo.offset)]){
-                        identicalBytes++;
-                    }
-                }
-            }
-            if (identicalBytes>streamInfo.identBytes){//if this recompressed stream has more matching bytes than the previous best
-                streamInfo.identBytes=identicalBytes;
-                streamInfo.clevel=clevel;
-                streamInfo.memlvl=memlevel;
-                streamInfo.window=window;
-                streamInfo.firstDiffByte=-1;
-                streamInfo.diffByteOffsets.clear();
-                streamInfo.diffByteVal.clear();
-                int_fast64_t last_i=0;
-                if (strm1.total_out<streamInfo.streamLength){//the recompressed stream is shorter than the original
-                    for (i=0; i<strm1.total_out; i++){//compare the streams byte-by-byte
-                        if (recompBuffer[i]!=buffer[(i+streamInfo.offset)]){//if a mismatching byte is found
-                            if (streamInfo.firstDiffByte<0){//if the first different byte is negative, then this is the first
-                                streamInfo.firstDiffByte=(i);
-                                streamInfo.diffByteOffsets.push_back(0);
-                                streamInfo.diffByteVal.push_back(buffer[(i+streamInfo.offset)]);
-                                last_i=i;
-                            } else {
-                                streamInfo.diffByteOffsets.push_back(i-last_i);
-                                streamInfo.diffByteVal.push_back(buffer[(i+streamInfo.offset)]);
-                                //std::cout<<"   different byte:"<<i<<std::endl;
-                                last_i=i;
-                            }
-                        }
-                    }
-                    for (i=0; i<(streamInfo.streamLength-strm1.total_out); i++){
-                        if ((i==0)&&((last_i+1)<strm1.total_out)){
-                            streamInfo.diffByteOffsets.push_back(strm1.total_out-last_i);
-                        } else{
-                            streamInfo.diffByteOffsets.push_back(1);
-                        }
-                        streamInfo.diffByteVal.push_back(buffer[(i+strm1.total_out+streamInfo.offset)]);
-                    }
-                } else {//the recompressed stream is longer than the original
-                    for (i=0; i<streamInfo.streamLength;i++){
-                        if (recompBuffer[i]!=buffer[(i+streamInfo.offset)]){//if a mismatching byte is found
-                            if (streamInfo.firstDiffByte<0){//if the first different byte is negative, then this is the first
-                                streamInfo.firstDiffByte=(i);
-                                streamInfo.diffByteOffsets.push_back(0);
-                                streamInfo.diffByteVal.push_back(buffer[(i+streamInfo.offset)]);
-                                last_i=i;
-                            } else {
-                                streamInfo.diffByteOffsets.push_back(i-last_i);
-                                streamInfo.diffByteVal.push_back(buffer[(i+streamInfo.offset)]);
-                                //std::cout<<"   different byte:"<<i<<std::endl;
-                                last_i=i;
-                            }
-                        }
-                    }
-                }
-            }
+    uint64_t i;
+    int_fast64_t identicalBytes=0;
+    if (!skip && abs((strm1.total_out-streamInfo.streamLength)) <= sizediffTresh){ // Size difference not more than treshold
+        uint64_t smaller = strm1.total_out < streamInfo.streamLength ? strm1.total_out : streamInfo.streamLength;
+        for (i = 0; i < smaller; i++) {
+            if (recompBuffer[i] == buffer[i + streamInfo.offset]) identicalBytes++;
         }
-    } else {
-        int_fast64_t identicalBytes=0;
-        for (i=0; i<strm1.total_out;i++){
-            if (recompBuffer[i]==buffer[(i+streamInfo.offset)]){
-                identicalBytes++;
-            }
-        }
-        if (identicalBytes==streamInfo.streamLength){
-            fullmatch=true;
-            streamInfo.identBytes=identicalBytes;
-            streamInfo.clevel=clevel;
-            streamInfo.memlvl=memlevel;
-            streamInfo.window=window;
-            streamInfo.firstDiffByte=-1;
+        if (identicalBytes > streamInfo.identBytes) { // More matching bytes than the previous best
+            streamInfo.identBytes = identicalBytes;
+            streamInfo.recomp = streamInfo.streamLength - streamInfo.identBytes <= recompTresh;
+            streamInfo.clevel = clevel;
+            streamInfo.memlevel = memlevel;
+            streamInfo.window = window;
+            streamInfo.firstDiffByte = -1;
             streamInfo.diffByteOffsets.clear();
             streamInfo.diffByteVal.clear();
-        } else {
-            if (((streamInfo.streamLength-identicalBytes)==2)&&((recompBuffer[0]-buffer[streamInfo.offset])!=0)&&((recompBuffer[1]-buffer[(1+streamInfo.offset)])!=0)){
-                fullmatch=true;
-                streamInfo.identBytes=identicalBytes;
-                streamInfo.clevel=clevel;
-                streamInfo.memlvl=memlevel;
-                streamInfo.window=window;
-                streamInfo.firstDiffByte=0;
-                streamInfo.diffByteOffsets.clear();
-                streamInfo.diffByteVal.clear();
-                streamInfo.diffByteOffsets.push_back(0);
-                streamInfo.diffByteOffsets.push_back(1);
-                streamInfo.diffByteVal.push_back(buffer[streamInfo.offset]);
-                streamInfo.diffByteVal.push_back(buffer[(1+streamInfo.offset)]);
-            }
-            if (((streamInfo.streamLength-identicalBytes)==1)&&(((recompBuffer[0]-buffer[streamInfo.offset])!=0)||((recompBuffer[1]-buffer[(1+streamInfo.offset)])!=0))){
-                fullmatch=true;
-                streamInfo.identBytes=identicalBytes;
-                streamInfo.clevel=clevel;
-                streamInfo.memlvl=memlevel;
-                streamInfo.window=window;
-                streamInfo.diffByteOffsets.clear();
-                streamInfo.diffByteVal.clear();
-                if (recompBuffer[0]!=buffer[streamInfo.offset]){
-                    streamInfo.firstDiffByte=0;
-                    streamInfo.diffByteVal.push_back(buffer[streamInfo.offset]);
-                } else {
-                    streamInfo.firstDiffByte=1;
-                    streamInfo.diffByteVal.push_back(buffer[(1+streamInfo.offset)]);
-                }
-                streamInfo.diffByteOffsets.push_back(0);
-            }
-            if ((identicalBytes>streamInfo.identBytes)&&!fullmatch){
-                streamInfo.identBytes=identicalBytes;
-                streamInfo.clevel=clevel;
-                streamInfo.memlvl=memlevel;
-                streamInfo.window=window;
-                streamInfo.firstDiffByte=-1;
-                streamInfo.diffByteOffsets.clear();
-                streamInfo.diffByteVal.clear();
-                int_fast64_t last_i=0;
-                for (i=0; i<strm1.total_out; i++){//compare the streams byte-by-byte
-                    if (recompBuffer[i]!=buffer[(i+streamInfo.offset)]){//if a mismatching byte is found
-                        if (streamInfo.firstDiffByte<0){//if the first different byte is negative, then this is the first
-                            streamInfo.firstDiffByte=(i);
+            uint64_t last_i;
+            if (identicalBytes == streamInfo.streamLength) { // We have a full match set the flag to bail from the nested loops
+                fullmatch = true;
+            } else { // There are different bytes and/or bytes at the end
+                if (identicalBytes + 2 >= streamInfo.streamLength) fullmatch = true; // If at most 2 bytes diff bail from the loop
+                for (i = 0; i < smaller; i++) {
+                    if (recompBuffer[i] != buffer[i + streamInfo.offset]) { // If a mismatching byte is found
+                        if (streamInfo.firstDiffByte < 0){ // If the first different byte is negative, then this is the first
+                            streamInfo.firstDiffByte = i;
                             streamInfo.diffByteOffsets.push_back(0);
-                            streamInfo.diffByteVal.push_back(buffer[(i+streamInfo.offset)]);
-                            last_i=i;
+                            streamInfo.diffByteVal.push_back(buffer[i+streamInfo.offset]);
+                            last_i = i;
                         } else {
-                            streamInfo.diffByteOffsets.push_back(i-last_i);
-                            streamInfo.diffByteVal.push_back(buffer[(i+streamInfo.offset)]);
-                            last_i=i;
+                            streamInfo.diffByteOffsets.push_back(i - last_i);
+                            streamInfo.diffByteVal.push_back(buffer[i + streamInfo.offset]);
+                            last_i = i;
                         }
+                    }
+                }
+                if (strm1.total_out < streamInfo.streamLength) { // If the recompressed stream is shorter add bytes after diffing
+                    for (i = 0; i < streamInfo.streamLength - strm1.total_out; i++) {
+                        if ((i == 0) && ((last_i + 1) < strm1.total_out)) { // Last byte was a match
+                            streamInfo.diffByteOffsets.push_back(strm1.total_out - last_i);
+                        } else {
+                            streamInfo.diffByteOffsets.push_back(1);
+                        }
+                        streamInfo.diffByteVal.push_back(buffer[i + strm1.total_out+streamInfo.offset]);
                     }
                 }
             }
         }
     }
-    streamInfo.recomp = ((streamInfo.streamLength - streamInfo.identBytes <= recompTresh) && (streamInfo.identBytes > 0));
     
     // Deallocate the zlib stream and check if it went well
     ret=deflateEnd(&strm1);
@@ -368,7 +269,7 @@ bool analyzeStream(unsigned char *buffer, uint_fast64_t bufferSize, StreamInfo &
     const double elapsed_secs = double(std::clock() - begin) / CLOCKS_PER_SEC;
     std::cout << " - time: " << elapsed_secs << " s.";
     std::cout << " > " << streamInfo.identBytes
-              << " |"<<(int)streamInfo.memlvl << "|" << (int)streamInfo.clevel << "|"
+              << " |"<<(int)streamInfo.memlevel << "|" << (int)streamInfo.clevel << "|"
               << (int)streamInfo.window << "|";
 
     return streamInfo.recomp;
@@ -436,7 +337,7 @@ bool preprocess(const char *infile_name, const char *atzfile_name) {
             outfile.write(reinterpret_cast<char*>(&streamInfoList[j].inflatedLength), 8);
             outfile.write(reinterpret_cast<char*>(&streamInfoList[j].clevel), 1);
             outfile.write(reinterpret_cast<char*>(&streamInfoList[j].window), 1);
-            outfile.write(reinterpret_cast<char*>(&streamInfoList[j].memlvl), 1);
+            outfile.write(reinterpret_cast<char*>(&streamInfoList[j].memlevel), 1);
 
             {
                 uint64_t diffbytes=streamInfoList[j].diffByteOffsets.size();
@@ -573,7 +474,7 @@ bool reconstruct(const char *atzfile_name, const char *reconfile_name) {
             streamInfoList.push_back(StreamInfo(*reinterpret_cast<uint64_t*>(&buffer[lastos]), -1, *reinterpret_cast<uint64_t*>(&buffer[8+lastos]), *reinterpret_cast<uint64_t*>(&buffer[16+lastos])));
             streamInfoList[j].clevel=buffer[24+lastos];
             streamInfoList[j].window=buffer[25+lastos];
-            streamInfoList[j].memlvl=buffer[26+lastos];
+            streamInfoList[j].memlevel=buffer[26+lastos];
             //partial match handling
             uint64_t diffbytes=*reinterpret_cast<uint64_t*>(&buffer[27+lastos]);
             if (diffbytes>0){//if the stream is just a partial match
@@ -613,7 +514,7 @@ bool reconstruct(const char *atzfile_name, const char *reconfile_name) {
                     strm.next_in=streamInfoList[j].atzInfos;
                     strm.avail_in=streamInfoList[j].inflatedLength;
                     //initialize the stream for compression and check for error
-                    int ret=deflateInit2(&strm, streamInfoList[j].clevel, Z_DEFLATED, streamInfoList[j].window, streamInfoList[j].memlvl, Z_DEFAULT_STRATEGY);
+                    int ret=deflateInit2(&strm, streamInfoList[j].clevel, Z_DEFLATED, streamInfoList[j].window, streamInfoList[j].memlevel, Z_DEFAULT_STRATEGY);
                     if (ret != Z_OK)
                     {
                         std::cout<<"deflateInit() failed with exit code:"<<ret<<std::endl;
@@ -668,7 +569,7 @@ bool reconstruct(const char *atzfile_name, const char *reconfile_name) {
                     strm.next_in=streamInfoList[j].atzInfos;
                     strm.avail_in=streamInfoList[j].inflatedLength;
                     //initialize the stream for compression and check for error
-                    int ret=deflateInit2(&strm, streamInfoList[j].clevel, Z_DEFLATED, streamInfoList[j].window, streamInfoList[j].memlvl, Z_DEFAULT_STRATEGY);
+                    int ret=deflateInit2(&strm, streamInfoList[j].clevel, Z_DEFLATED, streamInfoList[j].window, streamInfoList[j].memlevel, Z_DEFAULT_STRATEGY);
                     if (ret != Z_OK)
                     {
                         std::cout<<"deflateInit() failed with exit code:"<<ret<<std::endl;
