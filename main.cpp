@@ -118,7 +118,7 @@ void searchBuffer(unsigned char *buffer, uint_fast64_t bufferSize, std::vector<S
 
 bool testParameters(unsigned char *buffer, unsigned char *decompBuffer, StreamInfo &streamInfo, int window, int memlevel, int clevel)  {
     const int recompTresh = 128; // Recompressed if differs from the original in <= recompTresh bytes
-    const int sizediffTresh = 128; // Compared when the size difference is <= diffTresh
+    const int sizediffTresh = 128; // Compared when the size difference is <= sizediffTresh
     const int testBlock = 1024; // Data are compressed to testBlock bytes first before full compression
 
     // Use default settings except window, clevel and memlevel
