@@ -122,7 +122,7 @@ bool preprocess(const char *infile_name, const char *atzfile_name) {
         if (offsetType > 0) {
             #ifdef debug
             std::cout << "Zlib header 0x" << std::hex << std::setfill('0') << std::setw(4) << header << std::dec
-                      << " with " << (1 << ((header >> 24) - 2)) << "K window at offset: " << i << std::endl;
+                      << " with " << (1 << ((header >> 12) - 2)) << "K window at offset: " << i << std::endl;
             #endif // debug
             streamOffset s;
             if (checkOffset(i, offsetType, &buffer[i], infileSize - i, s)) {
@@ -210,7 +210,7 @@ bool preprocess(const char *infile_name, const char *atzfile_name) {
                                 int identicalBytes = 1024;
                                 if (strm1.total_out == 1024 && streamOffsetList[j].streamLength >= 1024) {
                                     identicalBytes = 0;
-                                    for (i=0; i<1023;i++){
+                                    for (i=0; i<1024;i++){
                                         if (recompBuffer[i]==buffer[(i+streamOffsetList[j].offset)]){
                                             identicalBytes++;
                                         }
