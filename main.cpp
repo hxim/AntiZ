@@ -8,25 +8,22 @@
 #include <cstdlib>
 #include <ctime>
 
-class streamOffset{
+class streamOffset {
 public:
-    streamOffset(){
-        offset=-1;
+    streamOffset(uint64_t os, int ot, uint64_t sl, uint64_t il) {
+        offset = os;
+        offsetType = ot;
+        streamLength = sl;
+        inflatedLength = il;
+        clevel = 9;
+        window = 15;
+        memlvl = 9;
+        identBytes = 0;
+        firstDiffByte = -1;
+        recomp = false;
+        atzInfos = 0;
     }
-    streamOffset(uint64_t os, int ot, uint64_t sl, uint64_t il){
-        offset=os;
-        offsetType=ot;
-        streamLength=sl;
-        inflatedLength=il;
-        clevel=9;
-        window=15;
-        memlvl=9;
-        identBytes=0;
-        firstDiffByte=-1;
-        recomp=false;
-        atzInfos=0;
-    }
-    ~streamOffset(){
+    ~streamOffset() {
         diffByteOffsets.clear();
         diffByteOffsets.shrink_to_fit();
         diffByteVal.clear();
@@ -40,8 +37,8 @@ public:
     uint8_t window;
     uint8_t memlvl;
     int_fast64_t identBytes;
-    int_fast64_t firstDiffByte;//the offset of the first byte that does not match, relative to stream start, not file start
-    std::vector<int_fast64_t> diffByteOffsets;//offsets of bytes that differ, this is an incremental offset list to enhance recompression, kinda like a PNG filter
+    int_fast64_t firstDiffByte; //the offset of the first byte that does not match, relative to stream start, not file start
+    std::vector<int_fast64_t> diffByteOffsets; //offsets of bytes that differ, this is an incremental offset list to enhance recompression, kinda like a PNG filter
     //this improves compression if the mismatching bytes are consecutive, eg. 451,452,453,...(no repetitions, hard to compress)
     //  transforms into 0, 1, 1, 1,...(repetitive, easy to compress)
     std::vector<unsigned char> diffByteVal;
@@ -50,8 +47,8 @@ public:
 };
 
 
-int parseOffsetType(int header){
-    switch (header){
+int parseOffsetType(int header) {
+    switch (header) {
         case 0x2815 : return 0;  case 0x2853 : return 1;  case 0x2891 : return 2;  case 0x28cf : return 3;
         case 0x3811 : return 4;  case 0x384f : return 5;  case 0x388d : return 6;  case 0x38cb : return 7;
         case 0x480d : return 8;  case 0x484b : return 9;  case 0x4889 : return 10; case 0x48c7 : return 11;
@@ -59,39 +56,40 @@ int parseOffsetType(int header){
         case 0x6805 : return 16; case 0x6843 : return 17; case 0x6881 : return 18; case 0x68de : return 19;
         case 0x7801 : return 20; case 0x785e : return 21; case 0x789c : return 22; case 0x78da : return 23;
     }
-    return 0;
+    return -1;
 }
 
-bool checkOffset(int_fast64_t offset, int offsetType, unsigned char *next_in, uint64_t avail_in, streamOffset &s){
+bool checkOffset(unsigned char *next_in, uint64_t avail_in, uint64_t &total_in, uint64_t &total_out) {
     z_stream strm;
-    bool success=false;
-    int_fast64_t memScale=1;
-    while (true){
-        strm.zalloc=Z_NULL;
-        strm.zfree=Z_NULL;
-        strm.opaque=Z_NULL;
-        strm.avail_in=avail_in;
-        strm.next_in=next_in;
+    bool success = false;
+    int_fast64_t memScale = 1;
+    while (true) {
+        strm.zalloc = Z_NULL;
+        strm.zfree = Z_NULL;
+        strm.opaque = Z_NULL;
+        strm.avail_in = avail_in;
+        strm.next_in = next_in;
 
         //initialize the stream for decompression and check for error
-        if (inflateInit(&strm)!=Z_OK) return false;
+        if (inflateInit(&strm) != Z_OK) return false;
             
         //a buffer needs to be created to hold the resulting decompressed data
         //this is a big problem since the zlib header does not contain the length of the decompressed data
         //the best we can do is to take a guess, and see if it was big enough, if not then scale it up
-        unsigned char* decompBuffer= new unsigned char[(memScale*5*avail_in)]; //just a wild guess, corresponds to a compression ratio of 20%
-        strm.next_out=decompBuffer;
-        strm.avail_out=memScale*5*avail_in;
-        int ret=inflate(&strm, Z_FINISH);//try to do the actual decompression in one pass
-        if (ret==Z_STREAM_END && strm.total_in>=16)//decompression was succesful
+        unsigned char* decompBuffer = new unsigned char[memScale * 5 * avail_in]; //just a wild guess, corresponds to a compression ratio of 20%
+        strm.next_out = decompBuffer;
+        strm.avail_out = memScale * 5 * avail_in;
+        int ret=inflate(&strm, Z_FINISH); //try to do the actual decompression in one pass
+        if (ret == Z_STREAM_END && strm.total_in >= 16) //decompression was succesful
         {
-            s=streamOffset(offset, offsetType, strm.total_in, strm.total_out);
-            success=true;
+            total_in = strm.total_in;
+            total_out = strm.total_out;
+            success = true;
         }
-        if (inflateEnd(&strm)!=Z_OK) success=false;
+        if (inflateEnd(&strm) != Z_OK) success = false;
         delete [] decompBuffer;
-        if (ret!=Z_BUF_ERROR) break;
-        memScale++;//increase buffer size for the next iteration
+        if (ret != Z_BUF_ERROR) break;
+        memScale++; //increase buffer size for the next iteration
     }
     return success;
 }
@@ -107,7 +105,7 @@ bool preprocess(const char *infile_name, const char *atzfile_name) {
         std::cout << "Error: Open file for input failed!" << std::endl;
         return false;
     }
-    int_fast64_t infileSize=infile.tellg(); // Get the size of the file
+    int_fast64_t infileSize = infile.tellg(); // Get the size of the file
     infile.seekg (0, infile.beg);
     unsigned char *buffer = new unsigned char[infileSize];
     infile.read(reinterpret_cast<char*>(buffer), infileSize); // Read into the buffer
@@ -119,15 +117,15 @@ bool preprocess(const char *infile_name, const char *atzfile_name) {
     for (i = 0; i < infileSize - 1; i++){
         int header = ((int)buffer[i]) * 256 + (int)buffer[i + 1];
         int offsetType = parseOffsetType(header);
-        if (offsetType > 0) {
+        if (offsetType >= 0) {
             #ifdef debug
             std::cout << "Zlib header 0x" << std::hex << std::setfill('0') << std::setw(4) << header << std::dec
                       << " with " << (1 << ((header >> 12) - 2)) << "K window at offset: " << i << std::endl;
             #endif // debug
-            streamOffset s;
-            if (checkOffset(i, offsetType, &buffer[i], infileSize - i, s)) {
-                streamOffsetList.push_back(s); // Valid offset found
-                i += s.streamLength - 1; // Skip to the end of zlib stream
+            uint64_t total_in, total_out;
+            if (checkOffset(&buffer[i], infileSize - i, total_in, total_out)) {
+                streamOffsetList.push_back(streamOffset(i, offsetType, total_in, total_out)); // Valid offset found
+                i += total_in - 1; // Skip to the end of zlib stream
             }
         }
     }
