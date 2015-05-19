@@ -166,9 +166,9 @@ bool testParameters(unsigned char *buffer, unsigned char *decompBuffer, StreamIn
         for (i = 0; i < smaller; i++) {
             if (recompBuffer[i] == buffer[i + streamInfo.offset]) identicalBytes++;
         }
-        if (identicalBytes > streamInfo.identBytes) { // More matching bytes than the previous best
+        if (streamInfo.streamLength - identicalBytes <= recompTresh && identicalBytes > streamInfo.identBytes) {
+            streamInfo.recomp = true;
             streamInfo.identBytes = identicalBytes;
-            streamInfo.recomp = streamInfo.streamLength - streamInfo.identBytes <= recompTresh;
             streamInfo.clevel = clevel;
             streamInfo.memlevel = memlevel;
             streamInfo.window = window;
@@ -185,13 +185,11 @@ bool testParameters(unsigned char *buffer, unsigned char *decompBuffer, StreamIn
                         if (streamInfo.firstDiffByte < 0){ // If the first different byte is negative, then this is the first
                             streamInfo.firstDiffByte = i;
                             streamInfo.diffByteOffsets.push_back(0);
-                            streamInfo.diffByteVal.push_back(buffer[i+streamInfo.offset]);
-                            last_i = i;
                         } else {
                             streamInfo.diffByteOffsets.push_back(i - last_i);
-                            streamInfo.diffByteVal.push_back(buffer[i + streamInfo.offset]);
-                            last_i = i;
                         }
+                        streamInfo.diffByteVal.push_back(buffer[i +streamInfo.offset]);
+                        last_i = i;
                     }
                 }
                 if (strm1.total_out < streamInfo.streamLength) { // If the recompressed stream is shorter add bytes after diffing
@@ -201,7 +199,7 @@ bool testParameters(unsigned char *buffer, unsigned char *decompBuffer, StreamIn
                         } else {
                             streamInfo.diffByteOffsets.push_back(1);
                         }
-                        streamInfo.diffByteVal.push_back(buffer[i + strm1.total_out+streamInfo.offset]);
+                        streamInfo.diffByteVal.push_back(buffer[i + strm1.total_out + streamInfo.offset]);
                     }
                 }
             }
@@ -212,7 +210,7 @@ bool testParameters(unsigned char *buffer, unsigned char *decompBuffer, StreamIn
     ret=deflateEnd(&strm1);
     if (ret != Z_OK && !skip)
     {
-        std::cout<<std::endl<<"deflateEnd() failed with exit code:"<<ret<<std::endl; // Should never happen normally
+        std::cout << std::endl << "deflateEnd() failed with exit code:" << ret << std::endl; // Should never happen normally
         abort();
     }
     delete [] recompBuffer;
