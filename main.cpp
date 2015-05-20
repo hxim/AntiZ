@@ -19,7 +19,6 @@ public:
         window = 15;
         memlevel = 9;
         identBytes = 0;
-        firstDiffByte = -1;
         recomp = false;
         atzInfos = 0;
     }
@@ -37,7 +36,6 @@ public:
     uint8_t window;
     uint8_t memlevel;
     int_fast64_t identBytes;
-    int_fast64_t firstDiffByte; // The offset of the first byte that does not match, relative to stream start
     std::vector<int_fast64_t> diffByteOffsets; // Offsets of bytes that differ, this is an incremental offset list
     std::vector<unsigned char> diffByteVal;
     bool recomp;
@@ -172,19 +170,17 @@ bool testParameters(unsigned char *buffer, unsigned char *decompBuffer, StreamIn
             streamInfo.clevel = clevel;
             streamInfo.memlevel = memlevel;
             streamInfo.window = window;
-            streamInfo.firstDiffByte = -1;
             streamInfo.diffByteOffsets.clear();
             streamInfo.diffByteVal.clear();
             if (identicalBytes == streamInfo.streamLength) { // We have a full match
                 fullmatch = true;
             } else { // There are different bytes and/or bytes at the end
                 uint64_t last = -1;
-                fullmatch = identicalBytes + 2 >= streamInfo.streamLength // At most 2 bytes diff
+                fullmatch = identicalBytes + 2 >= streamInfo.streamLength; // At most 2 bytes diff
                 for (i = 0; i < smaller; i++) {
                     if (recompBuffer[i] != buffer[i + streamInfo.offset]) { // Mismatching byte is found
                         if (last < 0) { // First different byte
-                            streamInfo.firstDiffByte = i;
-                            streamInfo.diffByteOffsets.push_back(0);
+                            streamInfo.diffByteOffsets.push_back(i);
                         } else {
                             streamInfo.diffByteOffsets.push_back(i - last);
                         }
@@ -342,8 +338,6 @@ bool preprocess(const char *infile_name, const char *atzfile_name) {
             uint64_t diffbytes=streamInfoList[j].diffByteOffsets.size();
             outfile.write(reinterpret_cast<char*>(&diffbytes), 8);
             if (diffbytes>0){
-                uint64_t firstdiff=streamInfoList[j].firstDiffByte;
-                outfile.write(reinterpret_cast<char*>(&firstdiff), 8);
                 uint64_t diffos;
                 uint8_t diffval;
                 for(int_fast64_t i=0;i<diffbytes;i++){
@@ -473,17 +467,15 @@ bool reconstruct(const char *atzfile_name, const char *reconfile_name) {
             //partial match handling
             uint64_t diffbytes=*reinterpret_cast<uint64_t*>(&buffer[27+lastos]);
             if (diffbytes>0){//if the stream is just a partial match
-                streamInfoList[j].firstDiffByte=*reinterpret_cast<uint64_t*>(&buffer[35+lastos]);
                 streamInfoList[j].diffByteOffsets.reserve(diffbytes);
                 streamInfoList[j].diffByteVal.reserve(diffbytes);
                 for (i=0;i<diffbytes;i++){
-                    streamInfoList[j].diffByteOffsets.push_back(*reinterpret_cast<uint64_t*>(&buffer[43+8*i+lastos]));
-                    streamInfoList[j].diffByteVal.push_back(buffer[43+diffbytes*8+i+lastos]);
+                    streamInfoList[j].diffByteOffsets.push_back(*reinterpret_cast<uint64_t*>(&buffer[35+8*i+lastos]));
+                    streamInfoList[j].diffByteVal.push_back(buffer[35+diffbytes*8+i+lastos]);
                 }
-                streamInfoList[j].atzInfos=&buffer[43+diffbytes*9+lastos];
-                lastos=lastos+43+diffbytes*9+streamInfoList[j].inflatedLength;
+                streamInfoList[j].atzInfos=&buffer[35+diffbytes*9+lastos];
+                lastos=lastos+35+diffbytes*9+streamInfoList[j].inflatedLength;
             } else{//if the stream is a full match
-                streamInfoList[j].firstDiffByte=-1;//negative value signals full match
                 streamInfoList[j].atzInfos=&buffer[35+lastos];
                 lastos=lastos+35+streamInfoList[j].inflatedLength;
             }
@@ -537,13 +529,11 @@ bool reconstruct(const char *atzfile_name, const char *reconfile_name) {
                 }
                     
                 //do stream modification if needed
-                if (streamInfoList[j].firstDiffByte>=0){
-                    uint64_t db=streamInfoList[j].diffByteOffsets.size();
-                    uint64_t sum=0;
-                    for(i=0;i<db;i++){
-                        compBuffer[streamInfoList[j].firstDiffByte+streamInfoList[j].diffByteOffsets[i]+sum]=streamInfoList[j].diffByteVal[i];
-                        sum=sum+streamInfoList[j].diffByteOffsets[i];
-                    }
+                uint64_t db=streamInfoList[j].diffByteOffsets.size();
+                uint64_t sum=0;
+                for(i=0;i<db;i++){
+                    compBuffer[streamInfoList[j].diffByteOffsets[i]+sum]=streamInfoList[j].diffByteVal[i];
+                    sum=sum+streamInfoList[j].diffByteOffsets[i];
                 }
                 recfile.write(reinterpret_cast<char*>(compBuffer), streamInfoList[j].streamLength);
                 delete [] compBuffer;
@@ -589,13 +579,11 @@ bool reconstruct(const char *atzfile_name, const char *reconfile_name) {
                 }
                     
                 //do stream modification if needed
-                if (streamInfoList[j].firstDiffByte>=0){
-                    uint64_t db=streamInfoList[j].diffByteOffsets.size();
-                    uint64_t sum=0;
-                    for(i=0;i<db;i++){
-                        compBuffer[streamInfoList[j].firstDiffByte+streamInfoList[j].diffByteOffsets[i]+sum]=streamInfoList[j].diffByteVal[i];
-                        sum=sum+streamInfoList[j].diffByteOffsets[i];
-                    }
+                uint64_t db=streamInfoList[j].diffByteOffsets.size();
+                uint64_t sum=0;
+                for(i=0;i<db;i++){
+                    compBuffer[streamInfoList[j].diffByteOffsets[i]+sum]=streamInfoList[j].diffByteVal[i];
+                    sum=sum+streamInfoList[j].diffByteOffsets[i];
                 }
                 recfile.write(reinterpret_cast<char*>(compBuffer), streamInfoList[j].streamLength);
                 delete [] compBuffer;
