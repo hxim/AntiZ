@@ -76,16 +76,15 @@ bool checkOffset(unsigned char *next_in, uint64_t avail_in, uint64_t &total_in, 
 
         // Initialize the stream for decompression and check for error
         if (inflateInit(&strm) != Z_OK) return false;
-            
+
         // A buffer needs to be created to hold the resulting decompressed data. This is a big
         // problem since the zlib header does not contain the length of the decompressed data.
         // The best we can do is to take a guess, and see if it was big enough, if not then scale it up.
         unsigned char* decompBuffer = new unsigned char[memScale * 5 * avail_in]; // Just a wild guess
         strm.next_out = decompBuffer;
         strm.avail_out = memScale * 5 * avail_in;
-        int ret=inflate(&strm, Z_FINISH); // Try to do the actual decompression in one pass
-        if (ret == Z_STREAM_END && strm.total_in >= 16) // Decompression was succesful
-        {
+        int ret = inflate(&strm, Z_FINISH); // Try to do the actual decompression in one pass
+        if (ret == Z_STREAM_END && strm.total_in >= 16) { // Decompression was succesful
             total_in = strm.total_in;
             total_out = strm.total_out;
             success = true;
@@ -99,7 +98,7 @@ bool checkOffset(unsigned char *next_in, uint64_t avail_in, uint64_t &total_in, 
 }
 
 void searchBuffer(unsigned char *buffer, uint_fast64_t bufferSize, std::vector<StreamInfo> &streamInfoList) {
-    for (int_fast64_t i = 0; i < bufferSize - 1; i++){
+    for (int_fast64_t i = 0; i < bufferSize - 1; i++) {
         int header = ((int)buffer[i]) * 256 + (int)buffer[i + 1];
         int offsetType = parseOffsetType(header);
         if (offsetType >= 0) {
@@ -137,7 +136,7 @@ bool testParameters(unsigned char *buffer, unsigned char *decompBuffer, StreamIn
     strm1.avail_out = std::min(recompSize, testBlock);
     strm1.avail_in = streamInfo.inflatedLength;
     strm1.next_out = recompBuffer;
-    ret=deflate(&strm1, Z_FINISH); // Do the partial compression (first testBlock bytes)
+    ret = deflate(&strm1, Z_FINISH); // Do the partial compression (first testBlock bytes)
     bool skip = false;
     if (ret == Z_OK && recompSize > testBlock) {
         // Check if full recompression is needed
@@ -153,15 +152,15 @@ bool testParameters(unsigned char *buffer, unsigned char *decompBuffer, StreamIn
             ret = deflate(&strm1, Z_FINISH); // Do full recompression
         }
     }
-    if (ret != Z_STREAM_END && (!skip || ret != Z_OK)){
-        std::cout<<std::endl<<"recompression failed with exit code:"<<ret<<std::endl;
+    if (ret != Z_STREAM_END && (!skip || ret != Z_OK)) {
+        std::cout << std::endl << "recompression failed with exit code:" << ret << std::endl;
         abort();
     }
-    
+
     bool fullmatch = false;
     uint64_t i;
-    int_fast64_t identicalBytes=0;
-    if (!skip && abs((strm1.total_out-streamInfo.streamLength)) <= sizediffTresh){ // Size difference not more than treshold
+    int_fast64_t identicalBytes = 0;
+    if (!skip && abs((strm1.total_out-streamInfo.streamLength)) <= sizediffTresh) { // Size difference not more than treshold
         uint64_t smaller = strm1.total_out < streamInfo.streamLength ? strm1.total_out : streamInfo.streamLength;
         for (i = 0; i < smaller; i++) {
             if (recompBuffer[i] == buffer[i + streamInfo.offset]) identicalBytes++;
@@ -175,27 +174,27 @@ bool testParameters(unsigned char *buffer, unsigned char *decompBuffer, StreamIn
             streamInfo.firstDiffByte = -1;
             streamInfo.diffByteOffsets.clear();
             streamInfo.diffByteVal.clear();
-            uint64_t last_i;
             if (identicalBytes == streamInfo.streamLength) { // We have a full match set the flag to bail from the nested loops
                 fullmatch = true;
             } else { // There are different bytes and/or bytes at the end
+                uint64_t last = -1;
                 if (identicalBytes + 2 >= streamInfo.streamLength) fullmatch = true; // If at most 2 bytes diff bail from the loop
                 for (i = 0; i < smaller; i++) {
                     if (recompBuffer[i] != buffer[i + streamInfo.offset]) { // If a mismatching byte is found
-                        if (streamInfo.firstDiffByte < 0){ // If the first different byte is negative, then this is the first
+                        if (streamInfo.firstDiffByte < 0) { // If the first different byte is negative, then this is the first
                             streamInfo.firstDiffByte = i;
                             streamInfo.diffByteOffsets.push_back(0);
                         } else {
-                            streamInfo.diffByteOffsets.push_back(i - last_i);
+                            streamInfo.diffByteOffsets.push_back(i - last);
                         }
                         streamInfo.diffByteVal.push_back(buffer[i +streamInfo.offset]);
-                        last_i = i;
+                        last = i;
                     }
                 }
                 if (strm1.total_out < streamInfo.streamLength) { // If the recompressed stream is shorter add bytes after diffing
                     for (i = 0; i < streamInfo.streamLength - strm1.total_out; i++) {
-                        if ((i == 0) && ((last_i + 1) < strm1.total_out)) { // Last byte was a match
-                            streamInfo.diffByteOffsets.push_back(strm1.total_out - last_i);
+                        if ((i == 0) && ((last + 1) < strm1.total_out)) { // Last byte was a match
+                            streamInfo.diffByteOffsets.push_back(strm1.total_out - last);
                         } else {
                             streamInfo.diffByteOffsets.push_back(1);
                         }
@@ -205,11 +204,10 @@ bool testParameters(unsigned char *buffer, unsigned char *decompBuffer, StreamIn
             }
         }
     }
-    
+
     // Deallocate the zlib stream and check if it went well
-    ret=deflateEnd(&strm1);
-    if (ret != Z_OK && !skip)
-    {
+    ret = deflateEnd(&strm1);
+    if (ret != Z_OK && !skip) {
         std::cout << std::endl << "deflateEnd() failed with exit code:" << ret << std::endl; // Should never happen normally
         abort();
     }
@@ -228,18 +226,17 @@ bool analyzeStream(unsigned char *buffer, uint_fast64_t bufferSize, StreamInfo &
     strm.avail_in = streamInfo.streamLength;
     strm.next_in = &buffer[streamInfo.offset];
     int ret = inflateInit(&strm);
-    if (ret != Z_OK)
-    {
+    if (ret != Z_OK) {
         std::cout << std::endl << "inflateInit() failed with exit code:" << ret << std::endl; // Should never happen normally
         abort();
     }
-    
+
     // A buffer needs to be created to hold the resulting decompressed data. Since we have already
     // deompressed the data before, we know exactly how large of a buffer we need to allocate.
     unsigned char* decompBuffer = new unsigned char[streamInfo.inflatedLength];
     strm.next_out = decompBuffer;
     strm.avail_out = streamInfo.inflatedLength;
-    ret=inflate(&strm, Z_FINISH); // Actual decompression in one pass
+    ret = inflate(&strm, Z_FINISH); // Actual decompression in one pass
     if (ret != Z_STREAM_END) {
         std::cout << std::endl << "inflate() failed with exit code:" << ret << std::endl;
         abort();
@@ -247,9 +244,12 @@ bool analyzeStream(unsigned char *buffer, uint_fast64_t bufferSize, StreamInfo &
 
     // Try all possible memlevel and clevel parameters
     const int window = 10 + streamInfo.offsetType / 4; // Take window size from zlib header
+    const int ctype = streamInfo.offsetType % 4;
+    const int minclevel = ctype == 3 ? 7 :ctype == 2 ? 6 : ctype == 1 ? 2 : 1;
+    const int maxclevel = ctype == 3 ? 9 :ctype == 2 ? 6 : ctype == 1 ? 5 : 1;
     bool fullmatch = false;
-    for (int memlevel = 9; memlevel > 0; memlevel--) {
-        for (int clevel = 9; clevel > 0; clevel--) {
+    for (int memlevel = 9; memlevel >= 1; memlevel--) {
+        for (int clevel = maxclevel; clevel >= minclevel; clevel--) {
             fullmatch = testParameters(buffer, decompBuffer, streamInfo, window, memlevel, clevel);
             if (fullmatch) break;
         }
@@ -263,11 +263,11 @@ bool analyzeStream(unsigned char *buffer, uint_fast64_t bufferSize, StreamInfo &
         abort();
     }
     delete [] decompBuffer;
-    
+
     const double elapsed_secs = double(std::clock() - begin) / CLOCKS_PER_SEC;
     std::cout << " - time: " << elapsed_secs << " s.";
     std::cout << " > " << streamInfo.identBytes
-              << " |"<<(int)streamInfo.memlevel << "|" << (int)streamInfo.clevel << "|"
+              << " |" << (int)streamInfo.memlevel << "|" << (int)streamInfo.clevel << "|"
               << (int)streamInfo.window << "|";
 
     return streamInfo.recomp;
@@ -277,7 +277,7 @@ bool preprocess(const char *infile_name, const char *atzfile_name) {
     std::cout << "Preprocess to ATZ file: " << infile_name << " -> " << atzfile_name << std::endl;
 
     // Open file and read contents into the buffer
-    std::ifstream infile;    
+    std::ifstream infile;
     infile.open(infile_name, std::ios::in | std::ios::binary | std::ios::ate);
     if (!infile.is_open()) {
         std::cout << "Error: Open file for input failed!" << std::endl;
@@ -296,7 +296,7 @@ bool preprocess(const char *infile_name, const char *atzfile_name) {
 
     // Find the parameters to use for recompression
     const int_fast64_t total = streamInfoList.size();
-    int_fast64_t recompressed = 0;    
+    int_fast64_t recompressed = 0;
     for (int_fast64_t i = 0; i < total; i++) {
         std::cout << std::endl << "Offset " << i << " / " << total
                   << " (c:" << streamInfoList[i].streamLength << ",d:" << streamInfoList[i].inflatedLength << ")";
@@ -337,25 +337,23 @@ bool preprocess(const char *infile_name, const char *atzfile_name) {
             outfile.write(reinterpret_cast<char*>(&streamInfoList[j].window), 1);
             outfile.write(reinterpret_cast<char*>(&streamInfoList[j].memlevel), 1);
 
-            {
-                uint64_t diffbytes=streamInfoList[j].diffByteOffsets.size();
-                outfile.write(reinterpret_cast<char*>(&diffbytes), 8);
-                if (diffbytes>0){
-                    uint64_t firstdiff=streamInfoList[j].firstDiffByte;
-                    outfile.write(reinterpret_cast<char*>(&firstdiff), 8);
-                    uint64_t diffos;
-                    uint8_t diffval;
-                    for(int_fast64_t i=0;i<diffbytes;i++){
-                        diffos=streamInfoList[j].diffByteOffsets[i];
-                        outfile.write(reinterpret_cast<char*>(&diffos), 8);
-                    }
-                    for(int_fast64_t i=0;i<diffbytes;i++){
-                        diffval=streamInfoList[j].diffByteVal[i];
-                        outfile.write(reinterpret_cast<char*>(&diffval), 1);
-                    }
+            uint64_t diffbytes=streamInfoList[j].diffByteOffsets.size();
+            outfile.write(reinterpret_cast<char*>(&diffbytes), 8);
+            if (diffbytes>0){
+                uint64_t firstdiff=streamInfoList[j].firstDiffByte;
+                outfile.write(reinterpret_cast<char*>(&firstdiff), 8);
+                uint64_t diffos;
+                uint8_t diffval;
+                for(int_fast64_t i=0;i<diffbytes;i++){
+                    diffos=streamInfoList[j].diffByteOffsets[i];
+                    outfile.write(reinterpret_cast<char*>(&diffos), 8);
+                }
+                for(int_fast64_t i=0;i<diffbytes;i++){
+                    diffval=streamInfoList[j].diffByteVal[i];
+                    outfile.write(reinterpret_cast<char*>(&diffval), 1);
                 }
             }
-
+     
             //create a new Zlib stream to do decompression
             z_stream strm;
             strm.zalloc = Z_NULL;
@@ -365,8 +363,7 @@ bool preprocess(const char *infile_name, const char *atzfile_name) {
             strm.next_in=buffer+streamInfoList[j].offset;
             //initialize the stream for decompression and check for error
             int ret=inflateInit(&strm);
-            if (ret != Z_OK)
-            {
+            if (ret != Z_OK) {
                 std::cout<<"inflateInit() failed with exit code:"<<ret<<std::endl;
                 abort();
             }
@@ -376,8 +373,7 @@ bool preprocess(const char *infile_name, const char *atzfile_name) {
             strm.avail_out=streamInfoList[j].inflatedLength;
             ret=inflate(&strm, Z_FINISH);//try to do the actual decompression in one pass
             //check the return value
-            switch (ret)
-            {
+            switch (ret) {
                 case Z_STREAM_END://decompression was succesful
                 {
                     break;
@@ -390,8 +386,7 @@ bool preprocess(const char *infile_name, const char *atzfile_name) {
             }
             //deallocate the zlib stream, check for errors
             ret=inflateEnd(&strm);
-            if (ret!=Z_OK)
-            {
+            if (ret!=Z_OK) {
                 std::cout<<"inflateEnd() failed with exit code:"<<ret<<std::endl;//should never happen normally
                 return ret;
             }
@@ -431,9 +426,9 @@ bool preprocess(const char *infile_name, const char *atzfile_name) {
 }
 
 bool reconstruct(const char *atzfile_name, const char *reconfile_name) {
-    int_fast64_t i, j;    
+    int_fast64_t i, j;
     std::cout << "Reconstruct from ATZ file: " << atzfile_name << " -> " << reconfile_name << std::endl;
-    
+
     //PHASE 5: verify that we can reconstruct the original file, using only data from the ATZ file
     uint64_t lastos=28, lastlen;
     uint64_t origlen=0;
@@ -503,45 +498,42 @@ bool reconstruct(const char *atzfile_name, const char *reconfile_name) {
             if ((lastos+lastlen)==streamInfoList[j].offset){//no gap before the stream
                 //a buffer needs to be created to hold the compressed data
                 unsigned char* compBuffer= new unsigned char[streamInfoList[j].streamLength+32768];
-                {
-                    //do compression
-                    z_stream strm;
-                    strm.zalloc = Z_NULL;
-                    strm.zfree = Z_NULL;
-                    strm.opaque = Z_NULL;
-                    strm.next_in=streamInfoList[j].atzInfos;
-                    strm.avail_in=streamInfoList[j].inflatedLength;
-                    //initialize the stream for compression and check for error
-                    int ret=deflateInit2(&strm, streamInfoList[j].clevel, Z_DEFLATED, streamInfoList[j].window, streamInfoList[j].memlevel, Z_DEFAULT_STRATEGY);
-                    if (ret != Z_OK)
+
+                //do compression
+                z_stream strm;
+                strm.zalloc = Z_NULL;
+                strm.zfree = Z_NULL;
+                strm.opaque = Z_NULL;
+                strm.next_in=streamInfoList[j].atzInfos;
+                strm.avail_in=streamInfoList[j].inflatedLength;
+                //initialize the stream for compression and check for error
+                int ret=deflateInit2(&strm, streamInfoList[j].clevel, Z_DEFLATED, streamInfoList[j].window, streamInfoList[j].memlevel, Z_DEFAULT_STRATEGY);
+                if (ret != Z_OK) {
+                    std::cout<<"deflateInit() failed with exit code:"<<ret<<std::endl;
+                    abort();
+                }
+                strm.next_out=compBuffer;
+                strm.avail_out=streamInfoList[j].streamLength+32768;
+                ret=deflate(&strm, Z_FINISH);//try to do the actual decompression in one pass
+                //check the return value
+                switch (ret) {
+                    case Z_STREAM_END://decompression was succesful
                     {
-                        std::cout<<"deflateInit() failed with exit code:"<<ret<<std::endl;
+                        break;
+                    }
+                    default://shit hit the fan, should never happen normally
+                    {
+                        std::cout<<"deflate() failed with exit code:"<<ret<<std::endl;
                         abort();
                     }
-                    strm.next_out=compBuffer;
-                    strm.avail_out=streamInfoList[j].streamLength+32768;
-                    ret=deflate(&strm, Z_FINISH);//try to do the actual decompression in one pass
-                    //check the return value
-                    switch (ret)
-                    {
-                        case Z_STREAM_END://decompression was succesful
-                        {
-                            break;
-                        }
-                        default://shit hit the fan, should never happen normally
-                        {
-                            std::cout<<"deflate() failed with exit code:"<<ret<<std::endl;
-                            abort();
-                        }
-                    }
-                    //deallocate the zlib stream, check for errors
-                    ret=deflateEnd(&strm);
-                    if (ret!=Z_OK)
-                    {
-                        std::cout<<"deflateEnd() failed with exit code:"<<ret<<std::endl;//should never happen normally
-                        return ret;
-                    }
                 }
+                //deallocate the zlib stream, check for errors
+                ret=deflateEnd(&strm);
+                if (ret!=Z_OK) {
+                    std::cout<<"deflateEnd() failed with exit code:"<<ret<<std::endl;//should never happen normally
+                    return ret;
+                }
+                    
                 //do stream modification if needed
                 if (streamInfoList[j].firstDiffByte>=0){
                     uint64_t db=streamInfoList[j].diffByteOffsets.size();
@@ -558,45 +550,42 @@ bool reconstruct(const char *atzfile_name, const char *reconfile_name) {
                 gapsum=gapsum+(streamInfoList[j].offset-(lastos+lastlen));
                 //a buffer needs to be created to hold the compressed data
                 unsigned char* compBuffer= new unsigned char[streamInfoList[j].streamLength+32768];
-                {
-                    //do compression
-                    z_stream strm;
-                    strm.zalloc = Z_NULL;
-                    strm.zfree = Z_NULL;
-                    strm.opaque = Z_NULL;
-                    strm.next_in=streamInfoList[j].atzInfos;
-                    strm.avail_in=streamInfoList[j].inflatedLength;
-                    //initialize the stream for compression and check for error
-                    int ret=deflateInit2(&strm, streamInfoList[j].clevel, Z_DEFLATED, streamInfoList[j].window, streamInfoList[j].memlevel, Z_DEFAULT_STRATEGY);
-                    if (ret != Z_OK)
+
+                //do compression
+                z_stream strm;
+                strm.zalloc = Z_NULL;
+                strm.zfree = Z_NULL;
+                strm.opaque = Z_NULL;
+                strm.next_in=streamInfoList[j].atzInfos;
+                strm.avail_in=streamInfoList[j].inflatedLength;
+                //initialize the stream for compression and check for error
+                int ret=deflateInit2(&strm, streamInfoList[j].clevel, Z_DEFLATED, streamInfoList[j].window, streamInfoList[j].memlevel, Z_DEFAULT_STRATEGY);
+                if (ret != Z_OK) {
+                    std::cout<<"deflateInit() failed with exit code:"<<ret<<std::endl;
+                    abort();
+                }
+                strm.next_out=compBuffer;
+                strm.avail_out=streamInfoList[j].streamLength+32768;
+                ret=deflate(&strm, Z_FINISH);//try to do the actual decompression in one pass
+                //check the return value
+                switch (ret) {
+                    case Z_STREAM_END://decompression was succesful
                     {
-                        std::cout<<"deflateInit() failed with exit code:"<<ret<<std::endl;
+                        break;
+                    }
+                    default://shit hit the fan, should never happen normally
+                    {
+                        std::cout<<"deflate() failed with exit code:"<<ret<<std::endl;
                         abort();
                     }
-                    strm.next_out=compBuffer;
-                    strm.avail_out=streamInfoList[j].streamLength+32768;
-                    ret=deflate(&strm, Z_FINISH);//try to do the actual decompression in one pass
-                    //check the return value
-                    switch (ret)
-                    {
-                        case Z_STREAM_END://decompression was succesful
-                        {
-                            break;
-                        }
-                        default://shit hit the fan, should never happen normally
-                        {
-                            std::cout<<"deflate() failed with exit code:"<<ret<<std::endl;
-                            abort();
-                        }
-                    }
-                    //deallocate the zlib stream, check for errors
-                    ret=deflateEnd(&strm);
-                    if (ret!=Z_OK)
-                    {
-                        std::cout<<"deflateEnd() failed with exit code:"<<ret<<std::endl;//should never happen normally
-                        return ret;
-                    }
                 }
+                //deallocate the zlib stream, check for errors
+                ret=deflateEnd(&strm);
+                if (ret!=Z_OK) {
+                    std::cout<<"deflateEnd() failed with exit code:"<<ret<<std::endl;//should never happen normally
+                    return ret;
+                }
+                    
                 //do stream modification if needed
                 if (streamInfoList[j].firstDiffByte>=0){
                     uint64_t db=streamInfoList[j].diffByteOffsets.size();
@@ -642,7 +631,7 @@ int main(int argc, char* argv[]) {
         } else {
             std::string infile(argv[1]);
             std::string atzfile(std::string(argv[1]) + ".atz");
-            std::string reconfile(std::string(argv[1]) + ".atz.rec"); 
+            std::string reconfile(std::string(argv[1]) + ".atz.rec");
             if (!preprocess(infile.c_str(), atzfile.c_str())) return EXIT_FAILURE;
             if (!reconstruct(atzfile.c_str(), reconfile.c_str())) return EXIT_FAILURE;
         }
