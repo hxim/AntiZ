@@ -45,12 +45,12 @@ public:
 };
 
 // A zlib stream has the following structure: (http://tools.ietf.org/html/rfc1950)
-//       +---+---+   CMF: bits 0 to 3  CM      Compression method (8 = deflate)
-//       |CMF|FLG|        bits 4 to 7  CINFO   Compression info (base-2 logarithm of the LZ77 window size, minus 8)
-//       +---+---+
-//                   FLG: bits 0 to 4  FCHECK  Check bits for CMF and FLG (in MSB order (CMF*256 + FLG), is a multiple of 31)
-//                        bit  5       FDICT   Preset dictionary
-//                        bits 6 to 7  FLEVEL  Compression level (0 = fastest, 1 = fast, 2 = default, 3 = maximum)
+//  +---+---+   CMF: bits 0 to 3  CM      Compression method (8 = deflate)
+//  |CMF|FLG|        bits 4 to 7  CINFO   Compression info (base-2 logarithm of the LZ77 window size minus 8)
+//  +---+---+
+//              FLG: bits 0 to 4  FCHECK  Check bits for CMF and FLG (in MSB order (CMF*256 + FLG) is a multiple of 31)
+//                   bit  5       FDICT   Preset dictionary
+//                   bits 6 to 7  FLEVEL  Compression level (0 = fastest, 1 = fast, 2 = default, 3 = maximum)
 int parseOffsetType(int header) {
     switch (header) {
         case 0x2815 : return 0;  case 0x2853 : return 1;  case 0x2891 : return 2;  case 0x28cf : return 3;
@@ -115,9 +115,10 @@ void searchBuffer(unsigned char *buffer, uint_fast64_t bufferSize, std::vector<S
     }
 }
 
-bool testParameters(unsigned char *buffer, unsigned char *decompBuffer, StreamInfo &streamInfo, int window, int memlevel, int clevel)  {
-    const int recompTresh = 128; // Recompressed if differs from the original in <= recompTresh bytes
-    const int sizediffTresh = 128; // Compared when the size difference is <= sizediffTresh
+bool testParameters(unsigned char *buffer, unsigned char *decompBuffer, StreamInfo &streamInfo,
+                    int window, int memlevel, int clevel)  {
+    const int recompTreshold = 128; // Recompressed if differs in <= recompTreshold bytes
+    const int sizeDiffTreshold = 128; // Compared when the size difference is <= sizeDiffTreshold
     const int testBlock = 1024; // Data are compressed to testBlock bytes first before full compression
 
     // Use default settings except window, clevel and memlevel
@@ -128,7 +129,7 @@ bool testParameters(unsigned char *buffer, unsigned char *decompBuffer, StreamIn
     strm1.next_in = decompBuffer;
     int ret = deflateInit2(&strm1, clevel, Z_DEFLATED, window, memlevel, Z_DEFAULT_STRATEGY);
     if (ret != Z_OK) {
-        std::cout << std::endl << "deflateInit() failed with exit code:" << ret << std::endl; // Should never happen normally
+        std::cout << std::endl << "deflateInit() failed with exit code:" << ret << std::endl; // Should never happen
         abort();
     }
     const int recompSize = deflateBound(&strm1, streamInfo.inflatedLength); // Allocate buffer for worst case
@@ -145,7 +146,7 @@ bool testParameters(unsigned char *buffer, unsigned char *decompBuffer, StreamIn
             for (int i = 0; i < testBlock ; i++) {
                 if (recompBuffer[i] == buffer[i + streamInfo.offset]) identicalBytes++;
             }
-            skip = identicalBytes < testBlock - recompTresh;
+            skip = identicalBytes < testBlock - recompTreshold;
         }
         if (!skip) {
             strm1.avail_out = recompSize;
@@ -158,14 +159,14 @@ bool testParameters(unsigned char *buffer, unsigned char *decompBuffer, StreamIn
     }
 
     bool fullmatch = false;
-    uint64_t i;
-    int_fast64_t identicalBytes = 0;
-    if (!skip && abs((strm1.total_out-streamInfo.streamLength)) <= sizediffTresh) { // Size difference not more than treshold
-        uint64_t smaller = strm1.total_out < streamInfo.streamLength ? strm1.total_out : streamInfo.streamLength;
+    skip |= abs((strm1.total_out - streamInfo.streamLength)) > sizeDiffTreshold;
+    if (!skip) {
+        uint64_t i, smaller = strm1.total_out < streamInfo.streamLength ? strm1.total_out : streamInfo.streamLength;
+        int_fast64_t identicalBytes = 0;
         for (i = 0; i < smaller; i++) {
             if (recompBuffer[i] == buffer[i + streamInfo.offset]) identicalBytes++;
         }
-        if (streamInfo.streamLength - identicalBytes <= recompTresh && identicalBytes > streamInfo.identBytes) {
+        if (streamInfo.streamLength - identicalBytes <= recompTreshold && identicalBytes > streamInfo.identBytes) {
             streamInfo.recomp = true;
             streamInfo.identBytes = identicalBytes;
             streamInfo.clevel = clevel;
@@ -174,26 +175,27 @@ bool testParameters(unsigned char *buffer, unsigned char *decompBuffer, StreamIn
             streamInfo.firstDiffByte = -1;
             streamInfo.diffByteOffsets.clear();
             streamInfo.diffByteVal.clear();
-            if (identicalBytes == streamInfo.streamLength) { // We have a full match set the flag to bail from the nested loops
+            if (identicalBytes == streamInfo.streamLength) { // We have a full match
                 fullmatch = true;
             } else { // There are different bytes and/or bytes at the end
                 uint64_t last = -1;
-                if (identicalBytes + 2 >= streamInfo.streamLength) fullmatch = true; // If at most 2 bytes diff bail from the loop
+                fullmatch = identicalBytes + 2 >= streamInfo.streamLength // At most 2 bytes diff
                 for (i = 0; i < smaller; i++) {
-                    if (recompBuffer[i] != buffer[i + streamInfo.offset]) { // If a mismatching byte is found
-                        if (streamInfo.firstDiffByte < 0) { // If the first different byte is negative, then this is the first
+                    if (recompBuffer[i] != buffer[i + streamInfo.offset]) { // Mismatching byte is found
+                        if (last < 0) { // First different byte
                             streamInfo.firstDiffByte = i;
                             streamInfo.diffByteOffsets.push_back(0);
                         } else {
                             streamInfo.diffByteOffsets.push_back(i - last);
                         }
-                        streamInfo.diffByteVal.push_back(buffer[i +streamInfo.offset]);
+                        streamInfo.diffByteVal.push_back(buffer[i + streamInfo.offset]);
                         last = i;
                     }
                 }
-                if (strm1.total_out < streamInfo.streamLength) { // If the recompressed stream is shorter add bytes after diffing
+                // If the recompressed stream is shorter add bytes after diffing
+                if (strm1.total_out < streamInfo.streamLength) {
                     for (i = 0; i < streamInfo.streamLength - strm1.total_out; i++) {
-                        if ((i == 0) && ((last + 1) < strm1.total_out)) { // Last byte was a match
+                        if (i == 0 && last + 1 < strm1.total_out) { // Last byte was a match
                             streamInfo.diffByteOffsets.push_back(strm1.total_out - last);
                         } else {
                             streamInfo.diffByteOffsets.push_back(1);
@@ -208,7 +210,7 @@ bool testParameters(unsigned char *buffer, unsigned char *decompBuffer, StreamIn
     // Deallocate the zlib stream and check if it went well
     ret = deflateEnd(&strm1);
     if (ret != Z_OK && !skip) {
-        std::cout << std::endl << "deflateEnd() failed with exit code:" << ret << std::endl; // Should never happen normally
+        std::cout << std::endl << "deflateEnd() failed with exit code:" << ret << std::endl; // Should never happen
         abort();
     }
     delete [] recompBuffer;
@@ -227,7 +229,7 @@ bool analyzeStream(unsigned char *buffer, uint_fast64_t bufferSize, StreamInfo &
     strm.next_in = &buffer[streamInfo.offset];
     int ret = inflateInit(&strm);
     if (ret != Z_OK) {
-        std::cout << std::endl << "inflateInit() failed with exit code:" << ret << std::endl; // Should never happen normally
+        std::cout << std::endl << "inflateInit() failed with exit code:" << ret << std::endl; // Should never happen
         abort();
     }
 
@@ -259,7 +261,7 @@ bool analyzeStream(unsigned char *buffer, uint_fast64_t bufferSize, StreamInfo &
     // Deallocate the zlib stream, check for errors and deallocate the decompression buffer
     ret = inflateEnd(&strm);
     if (ret != Z_OK) {
-        std::cout << std::endl << "inflateEnd() failed with exit code:" << ret << std::endl; // Should never happen normally
+        std::cout << std::endl << "inflateEnd() failed with exit code:" << ret << std::endl; // Should never happen
         abort();
     }
     delete [] decompBuffer;
@@ -378,7 +380,7 @@ bool preprocess(const char *infile_name, const char *atzfile_name) {
                 {
                     break;
                 }
-                default://shit hit the fan, should never happen normally
+                default://should never happen
                 {
                     std::cout<<"inflate() failed with exit code:"<<ret<<std::endl;
                     abort();
@@ -387,7 +389,7 @@ bool preprocess(const char *infile_name, const char *atzfile_name) {
             //deallocate the zlib stream, check for errors
             ret=inflateEnd(&strm);
             if (ret!=Z_OK) {
-                std::cout<<"inflateEnd() failed with exit code:"<<ret<<std::endl;//should never happen normally
+                std::cout<<"inflateEnd() failed with exit code:"<<ret<<std::endl;//should never happen
                 return ret;
             }
             outfile.write(reinterpret_cast<char*>(decompBuffer), streamInfoList[j].inflatedLength);
@@ -521,7 +523,7 @@ bool reconstruct(const char *atzfile_name, const char *reconfile_name) {
                     {
                         break;
                     }
-                    default://shit hit the fan, should never happen normally
+                    default://shit hit the fan, should never happen
                     {
                         std::cout<<"deflate() failed with exit code:"<<ret<<std::endl;
                         abort();
@@ -530,7 +532,7 @@ bool reconstruct(const char *atzfile_name, const char *reconfile_name) {
                 //deallocate the zlib stream, check for errors
                 ret=deflateEnd(&strm);
                 if (ret!=Z_OK) {
-                    std::cout<<"deflateEnd() failed with exit code:"<<ret<<std::endl;//should never happen normally
+                    std::cout<<"deflateEnd() failed with exit code:"<<ret<<std::endl;//should never happen
                     return ret;
                 }
                     
@@ -573,7 +575,7 @@ bool reconstruct(const char *atzfile_name, const char *reconfile_name) {
                     {
                         break;
                     }
-                    default://shit hit the fan, should never happen normally
+                    default://shit hit the fan, should never happen
                     {
                         std::cout<<"deflate() failed with exit code:"<<ret<<std::endl;
                         abort();
@@ -582,7 +584,7 @@ bool reconstruct(const char *atzfile_name, const char *reconfile_name) {
                 //deallocate the zlib stream, check for errors
                 ret=deflateEnd(&strm);
                 if (ret!=Z_OK) {
-                    std::cout<<"deflateEnd() failed with exit code:"<<ret<<std::endl;//should never happen normally
+                    std::cout<<"deflateEnd() failed with exit code:"<<ret<<std::endl;//should never happen
                     return ret;
                 }
                     
