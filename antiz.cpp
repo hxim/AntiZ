@@ -210,7 +210,7 @@ std::vector<StreamInfo> searchBuffer(unsigned char *buffer, uint_fast64_t buffer
     for (int_fast64_t i = 0; i < bufferSize - 1; i++) {
         int header = ((int)buffer[i]) * 256 + (int)buffer[i + 1];
         int offsetType = parseOffsetType(header);
-        if (offsetType == 0) continue;
+        if (offsetType == -1) continue;
 
         // Check offset and find stream length
         uint64_t total_in, total_out;
