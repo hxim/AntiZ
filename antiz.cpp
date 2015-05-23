@@ -52,8 +52,14 @@ public:
     }
 
     // Do decompression
-    bool doInflate() {
-        if (inflateInit(&strm) != Z_OK) return false;
+    bool doInflate(bool hasHeader) {
+        strm.next_in = strm.next_in; 
+        strm.avail_in = strm.avail_in;
+        if (hasHeader) {
+            if (inflateInit(&strm) != Z_OK) return false;
+        } else {
+            if (inflateInit2(&strm, -MAX_WBITS) != Z_OK) return false;
+        }
         int ret = Z_BUF_ERROR;
         while (ret == Z_BUF_ERROR) { // If buffer too small use it again
             strm.next_out = next_out;
@@ -65,8 +71,8 @@ public:
     }
 
     // Do compression
-    bool doDeflate(uint8_t clevel, uint8_t window, uint8_t memlevel) {
-        if (deflateInit2(&strm, clevel, Z_DEFLATED, window, memlevel, Z_DEFAULT_STRATEGY) != Z_OK) return false;
+    bool doDeflate(int clevel, int window, int memlevel) {
+        if (deflateInit2(&strm, clevel, Z_DEFLATED, window == 0 ? -MAX_WBITS : window, memlevel, Z_DEFAULT_STRATEGY) != Z_OK) return false;
         strm.next_out=next_out;
         strm.avail_out=avail_out;
         int ret = deflate(&strm, Z_FINISH);
@@ -97,11 +103,11 @@ int parseOffsetType(int header) {
     return -1;
 }
 
-bool checkOffset(unsigned char *next_in, uint64_t avail_in, uint64_t &total_in, uint64_t &total_out) {
+bool checkOffset(unsigned char *next_in, uint64_t avail_in, uint64_t &total_in, uint64_t &total_out, bool hasHeader) {
     bool success = false;
     unsigned char* dBuffer = new unsigned char[1 << 16];
     ZlibWrapper zw(next_in, avail_in, dBuffer, 1 << 16);
-    if (zw.doInflate() && zw.strm.total_in >= 16) {
+    if (zw.doInflate(hasHeader) && zw.strm.total_in >= 16 && zw.strm.total_out > 0) {
         total_in = zw.strm.total_in;
         total_out = zw.strm.total_out;
         success = true;
@@ -122,7 +128,7 @@ bool testParameters(unsigned char *buffer, unsigned char *dBuffer, StreamInfo &s
     strm.zfree = Z_NULL;
     strm.opaque = Z_NULL;
     strm.next_in = dBuffer;
-    int ret = deflateInit2(&strm, clevel, Z_DEFLATED, window, memlevel, Z_DEFAULT_STRATEGY);
+    int ret = deflateInit2(&strm, clevel, Z_DEFLATED, window == 0 ? -MAX_WBITS : window, memlevel, Z_DEFAULT_STRATEGY);
     if (ret != Z_OK) {
         std::cout << std::endl << "deflateInit() failed with exit code:" << ret << std::endl; // Should never happen
         abort();
@@ -161,7 +167,6 @@ bool testParameters(unsigned char *buffer, unsigned char *dBuffer, StreamInfo &s
         for (i = 0; i < smaller; i++) {
             if (rBuffer[i] == buffer[i + streamInfo.offset]) identicalBytes++;
         }
-
         if (streamInfo.streamLength - identicalBytes <= recompTreshold && identicalBytes > streamInfo.identBytes) {
             streamInfo.identBytes = identicalBytes;
             streamInfo.clevel = clevel;
@@ -210,28 +215,42 @@ std::vector<StreamInfo> searchBuffer(unsigned char *buffer, uint_fast64_t buffer
     for (int_fast64_t i = 0; i < bufferSize - 1; i++) {
         int header = ((int)buffer[i]) * 256 + (int)buffer[i + 1];
         int offsetType = parseOffsetType(header);
-        if (offsetType == -1) continue;
+        if (offsetType == -1) {
+            // Zip file local file header with deflate compression
+            bool zip = false;
+            if (i < bufferSize - 29 && buffer[i] == 'P' && buffer[i + 1] == 'K' && buffer[i + 2] == '\x3'
+                && buffer[i + 3] == '\x4' && buffer[i + 8] == '\x8' && buffer[i + 9] == '\0') {
+                int nameLength = (int)buffer[i + 26] + ((int)buffer[i + 27]) * 256
+                               + (int)buffer[i + 28] + ((int)buffer[i + 29]) * 256;
+                if (nameLength < 256 && i < bufferSize - 29 - nameLength) {
+                    i += 30 + nameLength;
+                    zip = true;
+                }
+            }
+            if (!zip) continue;
+        }
 
         // Check offset and find stream length
         uint64_t total_in, total_out;
-        if (!checkOffset(&buffer[i], bufferSize - i, total_in, total_out)) continue;
+        bool hasHeader = offsetType != -1;
+        if (!checkOffset(&buffer[i], bufferSize - i, total_in, total_out, hasHeader)) continue;
         StreamInfo streamInfo = StreamInfo(i, offsetType, total_in, total_out); // Valid offset found
         std::cout << std::endl << "HDR: 0x" << std::hex << std::setfill('0') << std::setw(4) << header << std::dec << " at " << i;
-        std::cout << " (" << streamInfo.inflatedLength << "->" << streamInfo.streamLength << ")";
+        std::cout << " (" << streamInfo.inflatedLength << "->" << streamInfo.streamLength << "/" << hasHeader << ")";
 
         // Find the parameters to use for recompression
         unsigned char* dBuffer = new unsigned char[streamInfo.inflatedLength];
         ZlibWrapper zw(&buffer[streamInfo.offset], streamInfo.streamLength, dBuffer, streamInfo.inflatedLength);
-        if (!zw.doInflate()) {
+        if (!zw.doInflate(hasHeader)) {
             std::cout << std::endl << "doInflate() failed" << std::endl;
             abort();
         }
 
         // Try all possible memlevel and clevel parameters
-        const int window = 10 + streamInfo.offsetType / 4; // Take window size from zlib header
+        const int window = hasHeader ? 10 + streamInfo.offsetType / 4 : 0; // Take window size from zlib header
         const int ctype = streamInfo.offsetType % 4;
-        const int minclevel = ctype == 3 ? 7 :ctype == 2 ? 6 : ctype == 1 ? 2 : 1;
-        const int maxclevel = ctype == 3 ? 9 :ctype == 2 ? 6 : ctype == 1 ? 5 : 1;
+        const int minclevel = hasHeader ? (ctype == 3 ? 7 :ctype == 2 ? 6 : ctype == 1 ? 2 : 1) : 1;
+        const int maxclevel = hasHeader ? (ctype == 3 ? 9 :ctype == 2 ? 6 : ctype == 1 ? 5 : 1) : 9;
         bool fullmatch = false;
         for (int memlevel = 9; memlevel >= 1; memlevel--) {
             for (int clevel = maxclevel; clevel >= minclevel; clevel--) {
@@ -273,7 +292,7 @@ void writeStreamInfo(std::ofstream &outfile, unsigned char *buffer, const Stream
     // decompress zlib stream
     unsigned char* dBuffer = new unsigned char[streamInfo.inflatedLength];
     ZlibWrapper zw(&buffer[streamInfo.offset], streamInfo.streamLength, dBuffer, streamInfo.inflatedLength);
-    if (!zw.doInflate()) {
+    if (!zw.doInflate(streamInfo.window != 0)) {
         std::cout << std::endl << "doInflate() failed" << std::endl;
         abort();
     }
