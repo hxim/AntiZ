@@ -6,6 +6,7 @@
 #include <zlib.h>
 #include <iomanip>
 #include <cstdlib>
+#include <cstring>
 
 class StreamInfo {
 public:
@@ -18,7 +19,6 @@ public:
         window = 15;
         memlevel = 9;
         identBytes = 0;
-        streamData = 0;
     }
     ~StreamInfo() {
         diffByteOffsets.clear();
@@ -36,7 +36,6 @@ public:
     uint64_t identBytes;
     std::vector<uint64_t> diffByteOffsets; // Offsets of bytes that differ, this is an incremental offset list
     std::vector<unsigned char> diffByteVal;
-    unsigned char* streamData;
 };
 
 class ZlibWrapper {
@@ -53,7 +52,7 @@ public:
 
     // Do decompression
     bool doInflate(bool hasHeader) {
-        strm.next_in = strm.next_in; 
+        strm.next_in = strm.next_in;
         strm.avail_in = strm.avail_in;
         if (hasHeader) {
             if (inflateInit(&strm) != Z_OK) return false;
@@ -104,6 +103,8 @@ int parseOffsetType(int header) {
 }
 
 bool checkOffset(unsigned char *next_in, uint64_t avail_in, uint64_t &total_in, uint64_t &total_out, bool hasHeader) {
+    if (avail_in < 16) return false;
+
     bool success = false;
     unsigned char* dBuffer = new unsigned char[1 << 16];
     ZlibWrapper zw(next_in, avail_in, dBuffer, 1 << 16);
@@ -112,7 +113,7 @@ bool checkOffset(unsigned char *next_in, uint64_t avail_in, uint64_t &total_in, 
         total_out = zw.strm.total_out;
         success = true;
     }
-    delete [] dBuffer;
+    delete[] dBuffer;
     return success;
 }
 
@@ -205,7 +206,7 @@ bool testParameters(unsigned char *buffer, unsigned char *dBuffer, StreamInfo &s
         std::cout << std::endl << "deflateEnd() failed with exit code:" << ret << std::endl; // Should never happen
         abort();
     }
-    delete [] rBuffer;
+    delete[] rBuffer;
     return fullmatch;
 }
 
@@ -215,6 +216,7 @@ std::vector<StreamInfo> searchBuffer(unsigned char *buffer, uint_fast64_t buffer
     for (int_fast64_t i = 0; i < bufferSize - 1; i++) {
         int header = ((int)buffer[i]) * 256 + (int)buffer[i + 1];
         int offsetType = parseOffsetType(header);
+
         if (offsetType == -1) {
             // Zip file local file header with deflate compression
             bool zip = false;
@@ -238,6 +240,7 @@ std::vector<StreamInfo> searchBuffer(unsigned char *buffer, uint_fast64_t buffer
         std::cout << std::endl << "HDR: 0x" << std::hex << std::setfill('0') << std::setw(4) << header << std::dec << " at " << i;
         std::cout << " (" << streamInfo.inflatedLength << "->" << streamInfo.streamLength << "/" << hasHeader << ")";
 
+
         // Find the parameters to use for recompression
         unsigned char* dBuffer = new unsigned char[streamInfo.inflatedLength];
         ZlibWrapper zw(&buffer[streamInfo.offset], streamInfo.streamLength, dBuffer, streamInfo.inflatedLength);
@@ -259,7 +262,7 @@ std::vector<StreamInfo> searchBuffer(unsigned char *buffer, uint_fast64_t buffer
             }
             if (fullmatch) break;
         }
-        delete [] dBuffer;
+        delete[] dBuffer;
         if (streamInfo.identBytes > 0) streamInfoList.push_back(streamInfo);
 
         std::cout << (streamInfo.identBytes > 0 ? " OK" : " --") << " [";
@@ -277,27 +280,66 @@ void writeNumber8(std::ofstream &outfile, uint64_t number) {
     outfile.write(reinterpret_cast<char*>(&number), 8);
 }
 
-void writeStreamInfo(std::ofstream &outfile, unsigned char *buffer, const StreamInfo &streamInfo) {
-    writeNumber8(outfile, streamInfo.offset);
-    writeNumber8(outfile, streamInfo.streamLength);
-    writeNumber8(outfile, streamInfo.inflatedLength);
-    writeNumber1(outfile, streamInfo.clevel);
-    writeNumber1(outfile, streamInfo.window);
-    writeNumber1(outfile, streamInfo.memlevel);
-    uint64_t diffBytes = streamInfo.diffByteOffsets.size();
-    writeNumber8(outfile, diffBytes);
-    for (int_fast64_t i = 0; i < diffBytes; i++) writeNumber8(outfile, streamInfo.diffByteOffsets[i]);
-    for (int_fast64_t i = 0; i < diffBytes; i++) writeNumber1(outfile, streamInfo.diffByteVal[i]);
-
-    // decompress zlib stream
-    unsigned char* dBuffer = new unsigned char[streamInfo.inflatedLength];
-    ZlibWrapper zw(&buffer[streamInfo.offset], streamInfo.streamLength, dBuffer, streamInfo.inflatedLength);
-    if (!zw.doInflate(streamInfo.window != 0)) {
-        std::cout << std::endl << "doInflate() failed" << std::endl;
-        abort();
+void writeTotal(std::ofstream &outfile, unsigned char *buffer, uint64_t bufferSize, uint32_t total) {
+    if (total > 0 || (bufferSize >= 8 && buffer[0] == '>' && buffer[1] == '>' && buffer[2] == '>' && buffer[3] == '>')) {
+        outfile.write(">>>>", 4); // Signature of recursion
+        outfile.write(reinterpret_cast<char*>(&total), 4); // Number of recompressed streams
     }
-    outfile.write(reinterpret_cast<char*>(dBuffer), streamInfo.inflatedLength);
-    delete [] dBuffer;
+}
+
+
+void preprocessRecursive(std::ofstream &outfile, unsigned char *buffer, uint_fast64_t bufferSize, int depth = 0) {
+    if (depth > 3) {
+        writeTotal(outfile, buffer, bufferSize, 0);
+        return;
+    }
+
+    // Search the input buffer for possible zlib streams and analyze them
+    std::cout << std::endl << "SEARCH " << depth<< " size:"<<bufferSize<<" " ;
+    std::vector<StreamInfo> streamInfoList = searchBuffer(buffer, bufferSize);
+
+    const int_fast64_t total = streamInfoList.size();
+    writeTotal(outfile, buffer, bufferSize, total);
+    for (int_fast64_t i = 0; i < total; i++) {
+        const StreamInfo &s = streamInfoList[i];
+
+        writeNumber8(outfile, s.offset);
+        writeNumber8(outfile, s.streamLength);
+        writeNumber8(outfile, s.inflatedLength);
+        writeNumber1(outfile, s.clevel);
+        writeNumber1(outfile, s.window);
+        writeNumber1(outfile, s.memlevel);
+        uint64_t diffBytes = s.diffByteOffsets.size();
+        writeNumber8(outfile, diffBytes);
+        for (int_fast64_t i = 0; i < diffBytes; i++) writeNumber8(outfile, s.diffByteOffsets[i]);
+        for (int_fast64_t i = 0; i < diffBytes; i++) writeNumber1(outfile, s.diffByteVal[i]);
+    }
+    uint64_t next = 0;
+    for (int_fast64_t i = 0; i < total; i++) { // Non-recompressed data
+        if (next != streamInfoList[i].offset) {
+            outfile.write(reinterpret_cast<char*>(&buffer[next]), streamInfoList[i].offset - next);
+        }
+        next = streamInfoList[i].offset + streamInfoList[i].streamLength;
+    }
+    if (next < bufferSize) { // If there is stuff after the last stream, write that to disk too
+        outfile.write(reinterpret_cast<char*>(&buffer[next]), bufferSize - next);
+    }
+
+    for (int_fast64_t i = 0; i < total; i++) {
+        // decompress zlib stream
+        const StreamInfo &s = streamInfoList[i];
+        unsigned char* dBuffer = new unsigned char[s.inflatedLength];
+        ZlibWrapper zw(&buffer[s.offset], s.streamLength, dBuffer, s.inflatedLength);
+        if (!zw.doInflate(s.window != 0)) {
+            std::cout << std::endl << "doInflate() failed" << std::endl;
+            abort();
+        }
+        preprocessRecursive(outfile, dBuffer, s.inflatedLength, depth + 1); // Recursion
+        delete[] dBuffer;
+    }
+
+    streamInfoList.clear();
+    streamInfoList.shrink_to_fit();
 }
 
 bool preprocess(const char *infile_name, const char *atzfile_name) {
@@ -316,47 +358,114 @@ bool preprocess(const char *infile_name, const char *atzfile_name) {
     infile.read(reinterpret_cast<char*>(buffer), inFileSize); // Read into the buffer
     infile.close();
 
-    // Search the file for possible zlib streams and analyze them
-    std::vector<StreamInfo> streamInfoList = searchBuffer(buffer, inFileSize);
-    const int_fast64_t total = streamInfoList.size();
-    std::cout << std::endl << "Total streams recompressed: " << total << std::endl;
-
-    // Take the created information and use it to create an ATZ file
+    // Create an ATZ file
     std::ofstream outfile;
     outfile.open(atzfile_name, std::ios::out | std::ios::binary | std::ios::trunc);
     if (!outfile.is_open()) {
         std::cout << "Error: open file for output failed!" << std::endl;
-        delete [] buffer;
+        delete[] buffer;
         return false;
     }
-    outfile.write("ATZ\1", 4); // File header and version
-    outfile.write("\0\0\0\0\0\0\0\0", 8); // Placeholder for the length of the atz file
-    writeNumber8(outfile, inFileSize); // Length of the original file
-    writeNumber8(outfile, total); // Number of recompressed streams
-    for (int_fast64_t i = 0; i < total; i++) {
-        writeStreamInfo(outfile, buffer, streamInfoList[i]);
-    }
-    uint64_t next = 0;
-    for (int_fast64_t i = 0; i < total; i++) { // Non-recompressed data
-        if (next != streamInfoList[i].offset) {
-            outfile.write(reinterpret_cast<char*>(&buffer[next]), streamInfoList[i].offset - next);
-        }
-        next = streamInfoList[i].offset + streamInfoList[i].streamLength;
-    }
-    if (next < inFileSize) { // If there is stuff after the last stream, write that to disk too
-        outfile.write(reinterpret_cast<char*>(&buffer[next]), inFileSize - next);
-    }
+    outfile.write("ATZ\1\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0", 20); // File header placeholder
+
+    preprocessRecursive(outfile, buffer, inFileSize);
 
     uint64_t atzFileSize = outfile.tellp();
     std::cout << "Total bytes written: " << atzFileSize << std::endl;
     outfile.seekp(4); // Go back to the placeholder
-    writeNumber8(outfile, atzFileSize);
-
-    streamInfoList.clear();
-    streamInfoList.shrink_to_fit();
+    writeNumber8(outfile, atzFileSize); // Length of the atz file
+    writeNumber8(outfile, inFileSize); // Length of the atz file
     outfile.close();
-    delete [] buffer;
+    delete[] buffer;
     return true;
+}
+
+unsigned char* writeData(std::ofstream &recfile, unsigned char *recBuffer, unsigned char *buffer, uint_fast64_t bufferSize) {
+    if (recBuffer == 0) {
+        recfile.write(reinterpret_cast<char*>(buffer), bufferSize);
+        return 0;
+    } else {
+        std::memcpy(recBuffer, buffer, bufferSize);
+        return recBuffer += bufferSize;
+    }
+}
+
+void reconstructRecursive(std::ofstream &recfile, unsigned char *recBuffer, unsigned char *buffer, uint64_t originalSize, int depth = 0) {
+    uint64_t total = *reinterpret_cast<uint32_t*>(&buffer[4]); // Number of streams
+
+    // Read all the info about the streams and do the reconstructing
+    std::vector<StreamInfo> streamInfoList;
+    streamInfoList.reserve(total);
+    uint64_t last = 8, streamData = originalSize;
+    for (int_fast64_t i = 0; i < total; i++) {
+        streamInfoList.push_back(StreamInfo(*reinterpret_cast<uint64_t*>(&buffer[last]), -1, // Stream offset
+                                            *reinterpret_cast<uint64_t*>(&buffer[8 + last]), // Compressed length
+                                            *reinterpret_cast<uint64_t*>(&buffer[16 + last]))); // Decompressed length
+        streamInfoList[i].clevel = buffer[24 + last];
+        streamInfoList[i].window = buffer[25 + last];
+        streamInfoList[i].memlevel = buffer[26 + last];
+
+        // Partial match handling
+        uint64_t diffBytes = *reinterpret_cast<uint64_t*>(&buffer[27 + last]);
+        streamInfoList[i].diffByteOffsets.reserve(diffBytes);
+        streamInfoList[i].diffByteVal.reserve(diffBytes);
+        for (int_fast64_t i=0; i < diffBytes; i++){
+            streamInfoList[i].diffByteOffsets.push_back(*reinterpret_cast<uint64_t*>(&buffer[35 + 8 * i + last]));
+            streamInfoList[i].diffByteVal.push_back(buffer[35 + diffBytes * 8 + i + last]);
+        }
+
+        last += 35 + diffBytes * 9;
+        streamData -= streamInfoList[i].streamLength;
+    }
+    streamData += last;
+    uint64_t next = 0;
+    for (int_fast64_t i = 0; i < total; i++) {
+
+        // Write the gap before the stream (if there is one)
+        if (next != streamInfoList[i].offset) {
+            recBuffer = writeData(recfile, recBuffer, &buffer[last], streamInfoList[i].offset - next);
+            last += streamInfoList[i].offset - next;
+        }
+        
+        // Recursion if needed
+        unsigned char* b = &buffer[streamData];
+        bool recursion = streamInfoList[i].inflatedLength >= 8 && b[0] == '>' && b[1] == '>' && b[2] == '>' && b[3] == '>';
+        if (recursion && *reinterpret_cast<uint32_t*>(&b[4]) == 0) {
+            recursion = false;
+            b += 8;
+        }
+        if (recursion) {
+            b = new unsigned char[streamInfoList[i].inflatedLength];
+            reconstructRecursive(recfile, b, &buffer[streamData], streamInfoList[i].inflatedLength, depth + 1);
+        }
+
+        // Do the compression using the parameters from the ATZ file
+        unsigned char* cBuffer = recBuffer == 0 ? new unsigned char[streamInfoList[i].streamLength] : recBuffer;
+        ZlibWrapper zw(b, streamInfoList[i].inflatedLength, cBuffer, streamInfoList[i].streamLength);
+        zw.doDeflate(streamInfoList[i].clevel, streamInfoList[i].window, streamInfoList[i].memlevel);
+        streamData += streamInfoList[i].inflatedLength;
+        if (recursion) delete[] b;
+
+        // Modify the compressed data according to the ATZ file (if necessary)
+        uint64_t db = streamInfoList[i].diffByteOffsets.size();
+        uint64_t sum = -1;
+        for(int_fast64_t i = 0; i < db; i++){
+            sum += streamInfoList[i].diffByteOffsets[i] + 1;
+            cBuffer[sum] = streamInfoList[i].diffByteVal[i];
+        }
+        if (recBuffer == 0) {
+            recfile.write(reinterpret_cast<char*>(cBuffer), streamInfoList[i].streamLength);
+            delete[] cBuffer;
+        } else {
+            recBuffer += streamInfoList[i].streamLength;
+        }
+        
+        next = streamInfoList[i].offset + streamInfoList[i].streamLength;
+    }
+    if (next < originalSize) {
+        recBuffer = writeData(recfile, recBuffer, &buffer[last], originalSize - next);
+    }
+
 }
 
 bool reconstruct(const char *atzfile_name, const char *reconfile_name) {
@@ -376,74 +485,22 @@ bool reconstruct(const char *atzfile_name, const char *reconfile_name) {
 
     if (buffer[0] != 'A' || buffer[1] != 'T' || buffer[2] != 'Z' || buffer[3] != '\1') {
         std::cout << "ATZ1 header not found" << std::endl;
-        delete [] buffer;
+        delete[] buffer;
         return false;
     }
     uint64_t atzFileSize = *reinterpret_cast<uint64_t*>(&buffer[4]); // ATZ file size
+    uint64_t originalSize = *reinterpret_cast<uint64_t*>(&buffer[12]); // Original file size
     if (atzFileSize != inFileSize){
         std::cout << "Invalid file : ATZ file size mismatch" << std::endl;
-        delete [] buffer;
+        delete[] buffer;
         return false;
     }
-    uint64_t originalSize = *reinterpret_cast<uint64_t*>(&buffer[12]); // Original file size
-    uint64_t total = *reinterpret_cast<uint64_t*>(&buffer[20]); // Number of streams
 
-    // Read all the info about the streams
-    std::vector<StreamInfo> streamInfoList;
-    streamInfoList.reserve(total);
-    uint64_t last = 28;
-    for (int_fast64_t j = 0; j < total; j++) {
-        streamInfoList.push_back(StreamInfo(*reinterpret_cast<uint64_t*>(&buffer[last]), -1, // Stream offset
-                                            *reinterpret_cast<uint64_t*>(&buffer[8 + last]), // Compressed length
-                                            *reinterpret_cast<uint64_t*>(&buffer[16 + last]))); // Decompressed length
-        streamInfoList[j].clevel = buffer[24 + last];
-        streamInfoList[j].window = buffer[25 + last];
-        streamInfoList[j].memlevel = buffer[26 + last];
-
-        // Partial match handling
-        uint64_t diffBytes = *reinterpret_cast<uint64_t*>(&buffer[27 + last]);
-        streamInfoList[j].diffByteOffsets.reserve(diffBytes);
-        streamInfoList[j].diffByteVal.reserve(diffBytes);
-        for (int_fast64_t i=0; i < diffBytes; i++){
-            streamInfoList[j].diffByteOffsets.push_back(*reinterpret_cast<uint64_t*>(&buffer[35 + 8 * i + last]));
-            streamInfoList[j].diffByteVal.push_back(buffer[35 + diffBytes * 8 + i + last]);
-        }
-        streamInfoList[j].streamData = &buffer[35 + diffBytes * 9 + last]; // Pointer to uncompressed stream data
-        last += 35 + diffBytes * 9 + streamInfoList[j].inflatedLength;
-    }
-
-    // Do the reconstructing
-    uint64_t next = 0;
     std::ofstream recfile(reconfile_name, std::ios::out | std::ios::binary | std::ios::trunc);
-    for (int_fast64_t j = 0; j < total; j++) {
-        // Write the gap before the stream (if there is one)
-        if (next != streamInfoList[j].offset) {
-            recfile.write(reinterpret_cast<char*>(&buffer[last]), streamInfoList[j].offset - next);
-            last += streamInfoList[j].offset - next;
-        }
-
-        // Do the compression using the parameters from the ATZ file
-        unsigned char* cBuffer = new unsigned char[streamInfoList[j].streamLength];
-        ZlibWrapper zw(streamInfoList[j].streamData, streamInfoList[j].inflatedLength, cBuffer, streamInfoList[j].streamLength);
-        zw.doDeflate(streamInfoList[j].clevel, streamInfoList[j].window, streamInfoList[j].memlevel);
-
-        // Modify the compressed data according to the ATZ file (if necessary)
-        uint64_t db = streamInfoList[j].diffByteOffsets.size();
-        uint64_t sum = -1;
-        for(int_fast64_t i = 0; i < db; i++){
-            sum += streamInfoList[j].diffByteOffsets[i] + 1;
-            cBuffer[sum] = streamInfoList[j].diffByteVal[i];
-        }
-        recfile.write(reinterpret_cast<char*>(cBuffer), streamInfoList[j].streamLength);
-        delete [] cBuffer;
-        next = streamInfoList[j].offset + streamInfoList[j].streamLength;
-    }
-    if (next < originalSize) {
-        recfile.write(reinterpret_cast<char*>(&buffer[last]), originalSize - next);
-    }
+    reconstructRecursive(recfile, 0, &buffer[20], originalSize);
     recfile.close();
 
-    delete [] buffer;
+    delete[] buffer;
     return true;
 }
 
