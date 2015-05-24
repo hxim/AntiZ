@@ -291,6 +291,7 @@ void writeTotal(std::ofstream &outfile, unsigned char *buffer, uint64_t bufferSi
 void preprocessRecursive(std::ofstream &outfile, unsigned char *buffer, uint_fast64_t bufferSize, int depth = 0) {
     if (depth > 3) {
         writeTotal(outfile, buffer, bufferSize, 0);
+        outfile.write(reinterpret_cast<char*>(buffer), bufferSize);
         return;
     }
 
@@ -397,6 +398,7 @@ void reconstructRecursive(std::ofstream &recfile, unsigned char *recBuffer, unsi
     std::vector<StreamInfo> streamInfoList;
     streamInfoList.reserve(total);
     uint64_t last = 8, streamData = originalSize;
+    
     for (int_fast64_t i = 0; i < total; i++) {
         streamInfoList.push_back(StreamInfo(*reinterpret_cast<uint64_t*>(&buffer[last]), -1, // Stream offset
                                             *reinterpret_cast<uint64_t*>(&buffer[8 + last]), // Compressed length
@@ -409,11 +411,10 @@ void reconstructRecursive(std::ofstream &recfile, unsigned char *recBuffer, unsi
         uint64_t diffBytes = *reinterpret_cast<uint64_t*>(&buffer[27 + last]);
         streamInfoList[i].diffByteOffsets.reserve(diffBytes);
         streamInfoList[i].diffByteVal.reserve(diffBytes);
-        for (int_fast64_t i=0; i < diffBytes; i++){
-            streamInfoList[i].diffByteOffsets.push_back(*reinterpret_cast<uint64_t*>(&buffer[35 + 8 * i + last]));
-            streamInfoList[i].diffByteVal.push_back(buffer[35 + diffBytes * 8 + i + last]);
+        for (int_fast64_t j = 0; j < diffBytes; j++){
+            streamInfoList[i].diffByteOffsets.push_back(*reinterpret_cast<uint64_t*>(&buffer[35 + 8 * j + last]));
+            streamInfoList[i].diffByteVal.push_back(buffer[35 + diffBytes * 8 + j + last]);
         }
-
         last += 35 + diffBytes * 9;
         streamData -= streamInfoList[i].streamLength;
     }
@@ -449,9 +450,9 @@ void reconstructRecursive(std::ofstream &recfile, unsigned char *recBuffer, unsi
         // Modify the compressed data according to the ATZ file (if necessary)
         uint64_t db = streamInfoList[i].diffByteOffsets.size();
         uint64_t sum = -1;
-        for(int_fast64_t i = 0; i < db; i++){
-            sum += streamInfoList[i].diffByteOffsets[i] + 1;
-            cBuffer[sum] = streamInfoList[i].diffByteVal[i];
+        for(int_fast64_t j = 0; j < db; j++){
+            sum += streamInfoList[i].diffByteOffsets[j] + 1;
+            cBuffer[sum] = streamInfoList[i].diffByteVal[j];
         }
         if (recBuffer == 0) {
             recfile.write(reinterpret_cast<char*>(cBuffer), streamInfoList[i].streamLength);
@@ -465,7 +466,6 @@ void reconstructRecursive(std::ofstream &recfile, unsigned char *recBuffer, unsi
     if (next < originalSize) {
         recBuffer = writeData(recfile, recBuffer, &buffer[last], originalSize - next);
     }
-
 }
 
 bool reconstruct(const char *atzfile_name, const char *reconfile_name) {
