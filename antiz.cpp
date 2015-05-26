@@ -1,12 +1,9 @@
-#include <iostream>
-#include <fstream>
-#include <vector>
-#include <cmath>
-#include <sys/stat.h>
-#include <zlib.h>
-#include <iomanip>
-#include <cstdlib>
 #include <cstring>
+#include <fstream>
+#include <iomanip>
+#include <iostream>
+#include <vector>
+#include <zlib.h>
 
 class StreamInfo {
 public:
@@ -213,7 +210,7 @@ bool testParameters(unsigned char *buffer, unsigned char *dBuffer, StreamInfo &s
 std::vector<StreamInfo> searchBuffer(unsigned char *buffer, uint_fast64_t bufferSize) {
     std::vector<StreamInfo> streamInfoList;
     int recompressed = 0;
-    for (int_fast64_t i = 0; i < bufferSize - 1; i++) {
+    for (int_fast64_t i = 0; i + 1 < bufferSize; i++) {
         int header = ((int)buffer[i]) * 256 + (int)buffer[i + 1];
         int offsetType = parseOffsetType(header);
 
@@ -296,7 +293,6 @@ void preprocessRecursive(std::ofstream &outfile, unsigned char *buffer, uint_fas
     }
 
     // Search the input buffer for possible zlib streams and analyze them
-    std::cout << std::endl << "SEARCH " << depth<< " size:"<<bufferSize<<" " ;
     std::vector<StreamInfo> streamInfoList = searchBuffer(buffer, bufferSize);
 
     const int_fast64_t total = streamInfoList.size();
@@ -375,7 +371,7 @@ bool preprocess(const char *infile_name, const char *atzfile_name) {
     std::cout << "Total bytes written: " << atzFileSize << std::endl;
     outfile.seekp(4); // Go back to the placeholder
     writeNumber8(outfile, atzFileSize); // Length of the atz file
-    writeNumber8(outfile, inFileSize); // Length of the atz file
+    writeNumber8(outfile, inFileSize); // Length of the original file
     outfile.close();
     delete[] buffer;
     return true;
@@ -392,12 +388,18 @@ unsigned char* writeData(std::ofstream &recfile, unsigned char *recBuffer, unsig
 }
 
 void reconstructRecursive(std::ofstream &recfile, unsigned char *recBuffer, unsigned char *buffer, uint64_t originalSize, int depth = 0) {
-    uint64_t total = *reinterpret_cast<uint32_t*>(&buffer[4]); // Number of streams
+    uint64_t streamData = originalSize, last, total;
+    if (buffer[0] == '>' && buffer[1] == '>' && buffer[2] == '>' && buffer[3] == '>') {
+        last = 8;
+        total = *reinterpret_cast<uint32_t*>(&buffer[4]); // Number of streams
+    } else {
+        last = 0;
+        total = 0;
+    }
 
     // Read all the info about the streams and do the reconstructing
     std::vector<StreamInfo> streamInfoList;
     streamInfoList.reserve(total);
-    uint64_t last = 8, streamData = originalSize;
     
     for (int_fast64_t i = 0; i < total; i++) {
         streamInfoList.push_back(StreamInfo(*reinterpret_cast<uint64_t*>(&buffer[last]), -1, // Stream offset
@@ -419,6 +421,7 @@ void reconstructRecursive(std::ofstream &recfile, unsigned char *recBuffer, unsi
         streamData -= streamInfoList[i].streamLength;
     }
     streamData += last;
+    
     uint64_t next = 0;
     for (int_fast64_t i = 0; i < total; i++) {
 
