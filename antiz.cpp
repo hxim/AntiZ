@@ -49,18 +49,19 @@ public:
 
     // Do decompression
     bool doInflate(bool hasHeader) {
-        strm.next_in = strm.next_in;
-        strm.avail_in = strm.avail_in;
         if (hasHeader) {
             if (inflateInit(&strm) != Z_OK) return false;
         } else {
             if (inflateInit2(&strm, -MAX_WBITS) != Z_OK) return false;
         }
         int ret = Z_BUF_ERROR;
-        while (ret == Z_BUF_ERROR) { // If buffer too small use it again
+        strm.total_out = 0;
+        while (ret == Z_BUF_ERROR) { // If output buffer too small use it again
             strm.next_out = next_out;
             strm.avail_out = avail_out;
+            int total_out = strm.total_out;
             ret = inflate(&strm, Z_FINISH);
+            if (ret == Z_BUF_ERROR && strm.total_out - total_out != avail_out) break; // Input buffer error
         }
         if (inflateEnd(&strm) != Z_OK) return false;
         return ret == Z_STREAM_END;
@@ -131,7 +132,7 @@ bool testParameters(unsigned char *buffer, unsigned char *dBuffer, StreamInfo &s
         std::cout << std::endl << "deflateInit() failed with exit code:" << ret << std::endl; // Should never happen
         abort();
     }
-    const int recompSize = deflateBound(&strm, streamInfo.inflatedLength); // Allocate buffer for worst case
+    const int recompSize = streamInfo.streamLength;
     unsigned char* rBuffer = new unsigned char[recompSize];
     strm.avail_out = std::min(recompSize, testBlock);
     strm.avail_in = streamInfo.inflatedLength;
@@ -152,7 +153,7 @@ bool testParameters(unsigned char *buffer, unsigned char *dBuffer, StreamInfo &s
             ret = deflate(&strm, Z_FINISH); // Do full recompression
         }
     }
-    if (ret != Z_STREAM_END && (!skip || ret != Z_OK)) {
+    if (ret != Z_STREAM_END && ret != Z_OK) {
         std::cout << std::endl << "recompression failed with exit code:" << ret << std::endl;
         abort();
     }
@@ -197,12 +198,7 @@ bool testParameters(unsigned char *buffer, unsigned char *dBuffer, StreamInfo &s
         }
     }
 
-    // Deallocate the zlib stream and check if it went well
     ret = deflateEnd(&strm);
-    if (ret != Z_OK && !skip) {
-        std::cout << std::endl << "deflateEnd() failed with exit code:" << ret << std::endl; // Should never happen
-        abort();
-    }
     delete[] rBuffer;
     return fullmatch;
 }
@@ -221,7 +217,7 @@ std::vector<StreamInfo> searchBuffer(unsigned char *buffer, uint_fast64_t buffer
                 && buffer[i + 3] == '\x4' && buffer[i + 8] == '\x8' && buffer[i + 9] == '\0') {
                 int nameLength = (int)buffer[i + 26] + ((int)buffer[i + 27]) * 256
                                + (int)buffer[i + 28] + ((int)buffer[i + 29]) * 256;
-                if (nameLength < 256 && i < bufferSize - 29 - nameLength) {
+                if (nameLength < 256 && i < bufferSize - 30 - nameLength) {
                     i += 30 + nameLength;
                     zip = true;
                 }
@@ -236,7 +232,6 @@ std::vector<StreamInfo> searchBuffer(unsigned char *buffer, uint_fast64_t buffer
         StreamInfo streamInfo = StreamInfo(i, offsetType, total_in, total_out); // Valid offset found
         std::cout << std::endl << "HDR: 0x" << std::hex << std::setfill('0') << std::setw(4) << header << std::dec << " at " << i;
         std::cout << " (" << streamInfo.inflatedLength << "->" << streamInfo.streamLength << "/" << hasHeader << ")";
-
 
         // Find the parameters to use for recompression
         unsigned char* dBuffer = new unsigned char[streamInfo.inflatedLength];
@@ -368,7 +363,7 @@ bool preprocess(const char *infile_name, const char *atzfile_name) {
     preprocessRecursive(outfile, buffer, inFileSize);
 
     uint64_t atzFileSize = outfile.tellp();
-    std::cout << "Total bytes written: " << atzFileSize << std::endl;
+    std::cout << std::endl << "Total bytes written: " << atzFileSize << std::endl;
     outfile.seekp(4); // Go back to the placeholder
     writeNumber8(outfile, atzFileSize); // Length of the atz file
     writeNumber8(outfile, inFileSize); // Length of the original file
@@ -400,7 +395,7 @@ void reconstructRecursive(std::ofstream &recfile, unsigned char *recBuffer, unsi
     // Read all the info about the streams and do the reconstructing
     std::vector<StreamInfo> streamInfoList;
     streamInfoList.reserve(total);
-    
+
     for (int_fast64_t i = 0; i < total; i++) {
         streamInfoList.push_back(StreamInfo(*reinterpret_cast<uint64_t*>(&buffer[last]), -1, // Stream offset
                                             *reinterpret_cast<uint64_t*>(&buffer[8 + last]), // Compressed length
@@ -421,7 +416,7 @@ void reconstructRecursive(std::ofstream &recfile, unsigned char *recBuffer, unsi
         streamData -= streamInfoList[i].streamLength;
     }
     streamData += last;
-    
+
     uint64_t next = 0;
     for (int_fast64_t i = 0; i < total; i++) {
 
@@ -430,7 +425,7 @@ void reconstructRecursive(std::ofstream &recfile, unsigned char *recBuffer, unsi
             recBuffer = writeData(recfile, recBuffer, &buffer[last], streamInfoList[i].offset - next);
             last += streamInfoList[i].offset - next;
         }
-        
+
         // Recursion if needed
         unsigned char* b = &buffer[streamData];
         bool recursion = streamInfoList[i].inflatedLength >= 8 && b[0] == '>' && b[1] == '>' && b[2] == '>' && b[3] == '>';
@@ -463,7 +458,7 @@ void reconstructRecursive(std::ofstream &recfile, unsigned char *recBuffer, unsi
         } else {
             recBuffer += streamInfoList[i].streamLength;
         }
-        
+
         next = streamInfoList[i].offset + streamInfoList[i].streamLength;
     }
     if (next < originalSize) {
